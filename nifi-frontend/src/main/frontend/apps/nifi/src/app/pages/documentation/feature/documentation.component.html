@@ -1,0 +1,151 @@
+<!--
+  ~ Licensed to the Apache Software Foundation (ASF) under one or more
+  ~ contributor license agreements.  See the NOTICE file distributed with
+  ~ this work for additional information regarding copyright ownership.
+  ~ The ASF licenses this file to You under the Apache License, Version 2.0
+  ~ (the "License"); you may not use this file except in compliance with
+  ~ the License.  You may obtain a copy of the License at
+  ~
+  ~     http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+
+<banner-text>
+    <div class="flex flex-col h-full">
+        <header class="nifi-header">
+            <navigation></navigation>
+        </header>
+        <div class="documentation flex flex-1">
+            <div class="w-1/4 relative">
+                <div class="absolute inset-0 overflow-y-auto p-2 border-b flex flex-col gap-y-2">
+                    <form [formGroup]="filterForm">
+                        <mat-form-field subscriptSizing="dynamic">
+                            <mat-label>Filter</mat-label>
+                            <input matInput type="text" class="small" formControlName="filter" />
+                        </mat-form-field>
+                    </form>
+                    <mat-accordion multi>
+                        <mat-expansion-panel [expanded]="generalExpanded">
+                            <mat-expansion-panel-header>
+                                <mat-panel-title>General</mat-panel-title>
+                            </mat-expansion-panel-header>
+                            <div class="external-links flex flex-col gap-y-1">
+                                @if (filterGeneral('Overview')) {
+                                    <a
+                                        class="p-1"
+                                        [class.selected]="isOverviewSelected()"
+                                        [routerLink]="['/documentation', 'overview']">
+                                        Overview
+                                    </a>
+                                } @else {
+                                    <div class="unset">No matching documentation</div>
+                                }
+                            </div>
+                        </mat-expansion-panel>
+                        <mat-expansion-panel [expanded]="processorsExpanded">
+                            <mat-expansion-panel-header>
+                                <mat-panel-title>Processors</mat-panel-title>
+                            </mat-expansion-panel-header>
+                            <ng-container
+                                *ngTemplateOutlet="
+                                    extensionLinks;
+                                    context: {
+                                        $implicit: filterExtensions((processorTypes$ | async)!),
+                                        componentType: ComponentType.Processor
+                                    }
+                                "></ng-container>
+                        </mat-expansion-panel>
+                        <mat-expansion-panel [expanded]="controllerServicesExpanded">
+                            <mat-expansion-panel-header>
+                                <mat-panel-title>Controller Services</mat-panel-title>
+                            </mat-expansion-panel-header>
+                            <ng-container
+                                *ngTemplateOutlet="
+                                    extensionLinks;
+                                    context: {
+                                        $implicit: filterExtensions((controllerServiceTypes$ | async)!),
+                                        componentType: ComponentType.ControllerService
+                                    }
+                                "></ng-container>
+                        </mat-expansion-panel>
+                        <mat-expansion-panel [expanded]="reportingTasksExpanded">
+                            <mat-expansion-panel-header>
+                                <mat-panel-title>Reporting Tasks</mat-panel-title>
+                            </mat-expansion-panel-header>
+                            <ng-container
+                                *ngTemplateOutlet="
+                                    extensionLinks;
+                                    context: {
+                                        $implicit: filterExtensions((reportingTaskTypes$ | async)!),
+                                        componentType: ComponentType.ReportingTask
+                                    }
+                                "></ng-container>
+                        </mat-expansion-panel>
+                        <mat-expansion-panel [expanded]="parameterProvidersExpanded">
+                            <mat-expansion-panel-header>
+                                <mat-panel-title>Parameter Providers</mat-panel-title>
+                            </mat-expansion-panel-header>
+                            <ng-container
+                                *ngTemplateOutlet="
+                                    extensionLinks;
+                                    context: {
+                                        $implicit: filterExtensions((parameterProviderTypes$ | async)!),
+                                        componentType: ComponentType.ParameterProvider
+                                    }
+                                "></ng-container>
+                        </mat-expansion-panel>
+                        <mat-expansion-panel>
+                            <mat-expansion-panel-header>
+                                <mat-panel-title>Flow Analysis Rules</mat-panel-title>
+                            </mat-expansion-panel-header>
+                            <ng-container
+                                *ngTemplateOutlet="
+                                    extensionLinks;
+                                    context: {
+                                        $implicit: filterExtensions((flowAnalysisRuleTypes$ | async)!),
+                                        componentType: ComponentType.FlowAnalysisRule
+                                    }
+                                "></ng-container>
+                        </mat-expansion-panel>
+                    </mat-accordion>
+                    <ng-template #extensionLinks let-extensionTypes let-componentType="componentType">
+                        @if (extensionTypes.length === 0) {
+                            <div class="unset">No matching extensions</div>
+                        } @else {
+                            <div class="extension-links flex flex-col gap-y-1">
+                                @for (
+                                    extensionType of extensionTypes;
+                                    track extensionTypeTrackBy($index, extensionType)
+                                ) {
+                                    <a
+                                        class="p-1"
+                                        [class.selected]="isComponentSelected(extensionType)"
+                                        [routerLink]="[
+                                            '/documentation',
+                                            componentType,
+                                            extensionType.bundle.group,
+                                            extensionType.bundle.artifact,
+                                            extensionType.bundle.version,
+                                            extensionType.type
+                                        ]"
+                                        >{{ getExtensionName(extensionType.type) }}</a
+                                    >
+                                }
+                            </div>
+                        }
+                    </ng-template>
+                </div>
+            </div>
+            <div class="w-3/4 relative">
+                <div class="absolute inset-0 overflow-y-auto">
+                    <router-outlet></router-outlet>
+                </div>
+            </div>
+        </div>
+    </div>
+</banner-text>

@@ -1,0 +1,12 @@
+{
+    "name": "@nifi/shared",
+    "keywords": [
+        "angular",
+        "material",
+        "material design",
+        "components",
+        "reusable"
+    ],
+    "dependencies": {},
+    "sideEffects": false
+}

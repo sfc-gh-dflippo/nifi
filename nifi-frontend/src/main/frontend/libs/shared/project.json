@@ -1,0 +1,64 @@
+{
+    "name": "shared",
+    "$schema": "../../node_modules/nx/schemas/project-schema.json",
+    "sourceRoot": "libs/shared/src",
+    "prefix": "nifi",
+    "projectType": "library",
+    "tags": [],
+    "targets": {
+        "build-grammar": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "lezer-generator src/services/codemirror-nifi-language/nfel/nfel.grammar --typeScript -o src/services/codemirror-nifi-language/nfel/nfel.ts",
+                "cwd": "libs/shared"
+            }
+        },
+        "build": {
+            "executor": "@nx/angular:ng-packagr-lite",
+            "dependsOn": ["build-grammar"],
+            "outputs": ["{workspaceRoot}/dist/{projectRoot}"],
+            "options": {
+                "project": "libs/shared/ng-package.json"
+            },
+            "configurations": {
+                "production": {
+                    "tsConfig": "libs/shared/tsconfig.lib.prod.json"
+                },
+                "development": {
+                    "tsConfig": "libs/shared/tsconfig.lib.json"
+                }
+            },
+            "defaultConfiguration": "production"
+        },
+        "test": {
+            "executor": "@nx/jest:jest",
+            "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
+            "options": {
+                "jestConfig": "libs/shared/jest.config.ts",
+                "passWithNoTests": true
+            },
+            "configurations": {
+                "ci": {
+                    "ci": true,
+                    "codeCoverage": true
+                }
+            }
+        },
+        "lint": {
+            "executor": "@nx/eslint:lint",
+            "outputs": ["{options.outputFile}"]
+        },
+        "prettier": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "npm run prettier"
+            }
+        },
+        "prettier:format": {
+            "executor": "nx:run-commands",
+            "options": {
+                "command": "npm run prettier-format"
+            }
+        }
+    }
+}

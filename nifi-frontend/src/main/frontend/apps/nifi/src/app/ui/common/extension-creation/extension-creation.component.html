@@ -1,0 +1,149 @@
+<!--
+  ~ Licensed to the Apache Software Foundation (ASF) under one or more
+  ~ contributor license agreements.  See the NOTICE file distributed with
+  ~ this work for additional information regarding copyright ownership.
+  ~ The ASF licenses this file to You under the Apache License, Version 2.0
+  ~ (the "License"); you may not use this file except in compliance with
+  ~ the License.  You may obtain a copy of the License at
+  ~
+  ~     http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+<div class="extension-creation-dialog" (keyup)="navigateSelectionList($event)">
+    <h2 mat-dialog-title>Add {{ componentType }}</h2>
+    <mat-dialog-content>
+        <div class="flex flex-col dialog-content gap-y-2">
+            <div class="flex flex-col gap-y-2">
+                <div class="flex items-center">
+                    <mat-form-field subscriptSizing="dynamic" class="mt-1">
+                        <mat-label>Filter types</mat-label>
+                        <input
+                            matInput
+                            class="px-1.5 py-1 w-64"
+                            type="text"
+                            (keyup)="filterTypes($event)"
+                            tabindex="0"
+                            placeholder="Filter types..." />
+                    </mat-form-field>
+                </div>
+                <div class="tertiary-color font-medium">
+                    <div>Showing {{ dataSource.filteredData.length }} of {{ dataSource.data.length }}</div>
+                </div>
+            </div>
+            @if (extensionTypesLoadingStatus === 'error') {
+                <div class="my-auto flex flex-col gap-y-4 items-center tertiary-color" data-qa="error-loading-types">
+                    <i class="fa fa-exclamation-circle error-color fa-4x"></i>
+                    <div class="text-lg font-semibold">Something went wrong</div>
+                    <div class="text-center">
+                        Unable to retrieve available {{ componentType }} types. Please try again later.
+                    </div>
+                </div>
+            } @else if (extensionTypesLoadingStatus === 'success') {
+                <div class="listing-table select-none flex-1 relative" data-qa="extension-types-listing">
+                    <div class="absolute inset-0 overflow-y-auto overflow-x-hidden">
+                        <table
+                            mat-table
+                            [dataSource]="dataSource"
+                            matSort
+                            matSortDisableClear
+                            (matSortChange)="sortData($event)"
+                            [matSortActive]="initialSortColumn"
+                            [matSortDirection]="initialSortDirection">
+                            <!-- Type Column -->
+                            <ng-container matColumnDef="type">
+                                <th mat-header-cell *matHeaderCellDef mat-sort-header>Type</th>
+                                <td mat-cell *matCellDef="let item">
+                                    @if (isSelected(item)) {
+                                        <div #selectedRow>
+                                            <div
+                                                class="fa"
+                                                [class.fa-shield]="item.restricted"
+                                                [class.error-color]="item.restricted"
+                                                nifiTooltip
+                                                [tooltipComponentType]="RestrictionsTip"
+                                                [tooltipInputData]="getRestrictionTipData(item)"></div>
+                                            {{ formatType(item) }}
+                                        </div>
+                                    } @else {
+                                        <div
+                                            class="fa"
+                                            [class.fa-shield]="item.restricted"
+                                            [class.error-color]="item.restricted"
+                                            nifiTooltip
+                                            [tooltipComponentType]="RestrictionsTip"
+                                            [tooltipInputData]="getRestrictionTipData(item)"></div>
+                                        {{ formatType(item) }}
+                                    }
+                                </td>
+                            </ng-container>
+
+                            <!-- Version Column -->
+                            <ng-container matColumnDef="version">
+                                <th mat-header-cell *matHeaderCellDef mat-sort-header>Version</th>
+                                <td mat-cell *matCellDef="let item">
+                                    {{ formatVersion(item) }}
+                                    @if (implementsControllerService(item)) {
+                                        <div
+                                            class="fa fa-list primary-color"
+                                            nifiTooltip
+                                            [tooltipComponentType]="ControllerServiceApiTip"
+                                            [tooltipInputData]="getControllerServiceApiTipData(item)"></div>
+                                    }
+                                </td>
+                            </ng-container>
+
+                            <!-- Tags Column -->
+                            <ng-container matColumnDef="tags">
+                                <th mat-header-cell *matHeaderCellDef mat-sort-header>Tags</th>
+                                <td mat-cell *matCellDef="let item">{{ formatTags(item) }}</td>
+                            </ng-container>
+
+                            <tr mat-header-row *matHeaderRowDef="displayedColumns; sticky: true"></tr>
+                            <tr
+                                mat-row
+                                *matRowDef="let row; let even = even; columns: displayedColumns"
+                                (click)="selectType(row)"
+                                (dblclick)="createExtension(row)"
+                                [class.selected]="isSelected(row)"
+                                [class.even]="even"></tr>
+                        </table>
+                    </div>
+                </div>
+                <div class="flex flex-col">
+                    @if (selectedType) {
+                        <div class="flex items-center mb-1">
+                            <div
+                                class="selected-type-name font-medium tertiary-color overflow-ellipsis overflow-hidden whitespace-nowrap"
+                                [title]="formatType(selectedType)">
+                                {{ formatType(selectedType) }}
+                            </div>
+                            <div
+                                class="selected-type-bundle neutral-color ml-4 tracking-wide overflow-ellipsis overflow-hidden whitespace-nowrap"
+                                [title]="formatBundle(selectedType)">
+                                {{ formatBundle(selectedType) }}
+                            </div>
+                        </div>
+                        <div class="selected-type-description" [title]="formatDescription(selectedType)">
+                            {{ formatDescription(selectedType) }}
+                        </div>
+                    } @else {
+                        <div class="no-selected-type unset neutral-color">No type selected</div>
+                    }
+                </div>
+            } @else {
+                <ngx-skeleton-loader count="3" data-qa="extension-types-skeleton"></ngx-skeleton-loader>
+            }
+        </div>
+    </mat-dialog-content>
+    <mat-dialog-actions align="end">
+        <button mat-button mat-dialog-close>Cancel</button>
+        <button [disabled]="selectedType == null || saving" (click)="createExtension(selectedType)" mat-flat-button>
+            <span *nifiSpinner="saving">Add</span>
+        </button>
+    </mat-dialog-actions>
+</div>

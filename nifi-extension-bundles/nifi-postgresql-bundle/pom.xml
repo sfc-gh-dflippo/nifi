@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Licensed to the Apache Software Foundation (ASF) under one or more contributor
+    license agreements. See the NOTICE file distributed with this work for additional
+    information regarding copyright ownership. The ASF licenses this file to
+    You under the Apache License, Version 2.0 (the "License"); you may not use
+    this file except in compliance with the License. You may obtain a copy of
+    the License at http://www.apache.org/licenses/LICENSE-2.0 Unless required
+    by applicable law or agreed to in writing, software distributed under the
+    License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS
+    OF ANY KIND, either express or implied. See the License for the specific
+    language governing permissions and limitations under the License. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.apache.nifi</groupId>
+        <artifactId>nifi-standard-shared-bom</artifactId>
+        <version>2.6.0</version>
+        <relativePath>../nifi-standard-shared-bundle/nifi-standard-shared-bom</relativePath>
+    </parent>
+    <artifactId>nifi-postgresql-bundle</artifactId>
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>nifi-postgresql-processors-nar</module>
+        <module>nifi-postgresql-processors</module>
+        <module>nifi-postgresql-services-api-nar</module>
+        <module>nifi-postgresql-services-api</module>
+        <module>nifi-postgresql-services-nar</module>
+        <module>nifi-postgresql-services</module>
+    </modules>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.postgresql</groupId>
+                <artifactId>postgresql</artifactId>
+                <version>42.7.7</version>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>postgresql</artifactId>
+                <version>1.20.4</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>junit-jupiter</artifactId>
+                <version>1.20.4</version>
+                <scope>test</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <properties>
+        <!-- Default test database configuration - OVERRIDE via environment variables or command line -->
+        <!-- SECURITY WARNING: Never commit real credentials to version control -->
+        <postgresql.test.host>localhost</postgresql.test.host>
+        <postgresql.test.port>5432</postgresql.test.port>
+        <postgresql.test.database>nifi_test</postgresql.test.database>
+        <postgresql.test.schema>public</postgresql.test.schema>
+        <postgresql.test.username>nifi_test</postgresql.test.username>
+        <postgresql.test.password>nifi_test</postgresql.test.password>
+    </properties>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <configuration>
+                        <includes>
+                            <!-- Include only unit tests by default -->
+                            <include>**/*Test.java</include>
+                        </includes>
+                        <excludes>
+                            <!-- Exclude integration tests from default execution -->
+                            <exclude>**/*IT.java</exclude>
+                        </excludes>
+                        <systemPropertyVariables>
+                            <!-- Pass PostgreSQL test credentials to all child modules -->
+                            <postgresql.test.host>${postgresql.test.host}</postgresql.test.host>
+                            <postgresql.test.port>${postgresql.test.port}</postgresql.test.port>
+                            <postgresql.test.database>${postgresql.test.database}</postgresql.test.database>
+                            <postgresql.test.schema>${postgresql.test.schema}</postgresql.test.schema>
+                            <postgresql.test.username>${postgresql.test.username}</postgresql.test.username>
+                            <postgresql.test.password>${postgresql.test.password}</postgresql.test.password>
+                        </systemPropertyVariables>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <configuration>
+                        <includes>
+                            <!-- Include only integration tests -->
+                            <include>**/*IT.java</include>
+                        </includes>
+                        <systemPropertyVariables>
+                            <!-- Pass PostgreSQL test credentials to all child modules -->
+                            <postgresql.test.host>${postgresql.test.host}</postgresql.test.host>
+                            <postgresql.test.port>${postgresql.test.port}</postgresql.test.port>
+                            <postgresql.test.database>${postgresql.test.database}</postgresql.test.database>
+                            <postgresql.test.schema>${postgresql.test.schema}</postgresql.test.schema>
+                            <postgresql.test.username>${postgresql.test.username}</postgresql.test.username>
+                            <postgresql.test.password>${postgresql.test.password}</postgresql.test.password>
+                        </systemPropertyVariables>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+
+    <profiles>
+        <!-- Profile to run integration tests requiring database connectivity -->
+        <profile>
+            <id>connectivity-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <goals>
+                                    <goal>integration-test</goal>
+                                    <goal>verify</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Profile to skip integration tests -->
+        <profile>
+            <id>skip-postgresql-tests</id>
+            <properties>
+                <skipTests>true</skipTests>
+            </properties>
+        </profile>
+
+        <!-- Profile for local development with different credentials -->
+        <profile>
+            <id>local-postgresql</id>
+            <properties>
+                <postgresql.test.host>localhost</postgresql.test.host>
+                <postgresql.test.database>nifi_test</postgresql.test.database>
+                <postgresql.test.schema>public</postgresql.test.schema>
+                <postgresql.test.username>nifi_test</postgresql.test.username>
+                <postgresql.test.password>nifi_test</postgresql.test.password>
+            </properties>
+        </profile>
+    </profiles>
+</project>

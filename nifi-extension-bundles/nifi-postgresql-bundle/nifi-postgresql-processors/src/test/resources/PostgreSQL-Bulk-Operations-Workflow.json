@@ -1,0 +1,685 @@
+{
+  "flowContents": {
+    "identifier": "postgresql-bulk-workflow",
+    "instanceIdentifier": "00000000-0000-0000-0000-000000000000",
+    "name": "PostgreSQL Bulk Operations Workflow",
+    "comments": "Demonstrates PostgreSQL bulk operations: create table, load, export, update, upsert, and secondary load",
+    "position": {
+      "x": 0.0,
+      "y": 0.0
+    },
+    "processGroups": [],
+    "remoteProcessGroups": [],
+    "processors": [
+      {
+        "identifier": "generate-flowfile",
+        "instanceIdentifier": "00000000-0000-0000-0001-000000000001",
+        "name": "Generate Test Data Trigger",
+        "comments": "Triggers the workflow to generate test data",
+        "position": {
+          "x": 100.0,
+          "y": 100.0
+        },
+        "type": "org.apache.nifi.processors.standard.GenerateFlowFile",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.6.0"
+        },
+        "properties": {
+          "File Size": "0B",
+          "Batch Size": "1",
+          "Data Format": "Text",
+          "Unique FlowFiles": "false"
+        },
+        "propertyDescriptors": {},
+        "schedulingPeriod": "0 sec",
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "executionNode": "ALL",
+        "penaltyDuration": "30 sec",
+        "yieldDuration": "1 sec",
+        "bulletinLevel": "WARN",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": [],
+        "componentType": "PROCESSOR",
+        "groupIdentifier": "root"
+      },
+      {
+        "identifier": "create-table-sql",
+        "instanceIdentifier": "00000000-0000-0000-0001-000000000002",
+        "name": "Create Source Table",
+        "comments": "Creates the source table if it doesn't exist",
+        "position": {
+          "x": 100.0,
+          "y": 250.0
+        },
+        "type": "org.apache.nifi.processors.standard.ExecuteSQL",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.6.0"
+        },
+        "properties": {
+          "dbcp-service": "#{pg.connection.pool}",
+          "sql-select-query": "CREATE TABLE IF NOT EXISTS #{source.table.name} (\n  id SERIAL PRIMARY KEY,\n  name VARCHAR(100),\n  email VARCHAR(100),\n  age INTEGER,\n  salary DECIMAL(10,2),\n  department VARCHAR(50),\n  hire_date DATE,\n  is_active BOOLEAN,\n  last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n)",
+          "Max Wait Time": "0 seconds",
+          "output-format": "avro"
+        },
+        "propertyDescriptors": {},
+        "schedulingPeriod": "0 sec",
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "executionNode": "ALL",
+        "penaltyDuration": "30 sec",
+        "yieldDuration": "1 sec",
+        "bulletinLevel": "WARN",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": ["success"],
+        "componentType": "PROCESSOR",
+        "groupIdentifier": "root"
+      },
+      {
+        "identifier": "create-target-table-sql",
+        "instanceIdentifier": "00000000-0000-0000-0001-000000000003",
+        "name": "Create Target Table",
+        "comments": "Creates the target table for upsert results",
+        "position": {
+          "x": 100.0,
+          "y": 400.0
+        },
+        "type": "org.apache.nifi.processors.standard.ExecuteSQL",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.6.0"
+        },
+        "properties": {
+          "dbcp-service": "#{pg.connection.pool}",
+          "sql-select-query": "CREATE TABLE IF NOT EXISTS #{target.table.name} (\n  id SERIAL PRIMARY KEY,\n  name VARCHAR(100),\n  email VARCHAR(100),\n  age INTEGER,\n  salary DECIMAL(10,2),\n  department VARCHAR(50),\n  hire_date DATE,\n  is_active BOOLEAN,\n  last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n)",
+          "Max Wait Time": "0 seconds",
+          "output-format": "avro"
+        },
+        "propertyDescriptors": {},
+        "schedulingPeriod": "0 sec",
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "executionNode": "ALL",
+        "penaltyDuration": "30 sec",
+        "yieldDuration": "1 sec",
+        "bulletinLevel": "WARN",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": ["success"],
+        "componentType": "PROCESSOR",
+        "groupIdentifier": "root"
+      },
+      {
+        "identifier": "generate-test-data",
+        "instanceIdentifier": "00000000-0000-0000-0001-000000000004",
+        "name": "Generate Random Test Data (CSV)",
+        "comments": "Generates random employee test data in CSV format",
+        "position": {
+          "x": 100.0,
+          "y": 550.0
+        },
+        "type": "org.apache.nifi.processors.standard.ReplaceText",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.6.0"
+        },
+        "properties": {
+          "Regular Expression": "(?s)(^.*$)",
+          "Replacement Value": "name,email,age,salary,department,hire_date,is_active\nJohn Doe,john.doe@example.com,35,75000.00,Engineering,2020-01-15,true\nJane Smith,jane.smith@example.com,28,65000.00,Marketing,2021-03-20,true\nBob Johnson,bob.johnson@example.com,42,85000.00,Engineering,2018-07-10,true\nAlice Williams,alice.williams@example.com,31,72000.00,Sales,2019-11-05,true\nCharlie Brown,charlie.brown@example.com,38,78000.00,Engineering,2020-06-12,true\nDiana Prince,diana.prince@example.com,29,68000.00,Marketing,2021-09-01,true\nEthan Hunt,ethan.hunt@example.com,45,95000.00,Operations,2017-02-28,true\nFiona Green,fiona.green@example.com,33,71000.00,Sales,2019-05-18,true\nGeorge Clark,george.clark@example.com,40,82000.00,Engineering,2018-10-22,true\nHannah Lee,hannah.lee@example.com,27,63000.00,Marketing,2022-01-10,true",
+          "Replacement Strategy": "Always Replace",
+          "Evaluation Mode": "Entire text"
+        },
+        "propertyDescriptors": {},
+        "schedulingPeriod": "0 sec",
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "executionNode": "ALL",
+        "penaltyDuration": "30 sec",
+        "yieldDuration": "1 sec",
+        "bulletinLevel": "WARN",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": [],
+        "componentType": "PROCESSOR",
+        "groupIdentifier": "root"
+      },
+      {
+        "identifier": "bulk-load-initial",
+        "instanceIdentifier": "00000000-0000-0000-0001-000000000005",
+        "name": "Bulk Load to Source Table",
+        "comments": "Loads CSV data into PostgreSQL using COPY command",
+        "position": {
+          "x": 100.0,
+          "y": 700.0
+        },
+        "type": "org.apache.nifi.processors.postgresql.PostgreSQLBulkLoad",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-postgresql-processors-nar",
+          "version": "2.6.0"
+        },
+        "properties": {
+          "PostgreSQL Connection Pool": "#{pg.connection.pool}",
+          "Table Name": "#{source.table.name}",
+          "Schema Name": "public",
+          "Input Format": "CSV",
+          "CSV Format": "Default",
+          "CSV Header": "Use Header Line",
+          "Conflict Action": "Error on Conflict",
+          "Batch Size": "1000"
+        },
+        "propertyDescriptors": {},
+        "schedulingPeriod": "0 sec",
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "executionNode": "ALL",
+        "penaltyDuration": "30 sec",
+        "yieldDuration": "1 sec",
+        "bulletinLevel": "WARN",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": [],
+        "componentType": "PROCESSOR",
+        "groupIdentifier": "root"
+      },
+      {
+        "identifier": "bulk-export",
+        "instanceIdentifier": "00000000-0000-0000-0001-000000000006",
+        "name": "Bulk Export from Source Table",
+        "comments": "Exports data from PostgreSQL using COPY TO command",
+        "position": {
+          "x": 100.0,
+          "y": 850.0
+        },
+        "type": "org.apache.nifi.processors.postgresql.PostgreSQLBulkExport",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-postgresql-processors-nar",
+          "version": "2.6.0"
+        },
+        "properties": {
+          "PostgreSQL Connection Pool": "#{pg.connection.pool}",
+          "Table Name": "#{source.table.name}",
+          "Schema Name": "public",
+          "Output Format": "CSV",
+          "CSV Format": "Default",
+          "Include Header": "true",
+          "Select Columns": "",
+          "Where Clause": "",
+          "Batch Size": "1000"
+        },
+        "propertyDescriptors": {},
+        "schedulingPeriod": "0 sec",
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "executionNode": "ALL",
+        "penaltyDuration": "30 sec",
+        "yieldDuration": "1 sec",
+        "bulletinLevel": "WARN",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": [],
+        "componentType": "PROCESSOR",
+        "groupIdentifier": "root"
+      },
+      {
+        "identifier": "update-salary-field",
+        "instanceIdentifier": "00000000-0000-0000-0001-000000000007",
+        "name": "Update Salary Field (+10%)",
+        "comments": "Updates the salary field in the CSV data by 10%",
+        "position": {
+          "x": 100.0,
+          "y": 1000.0
+        },
+        "type": "org.apache.nifi.processors.standard.ReplaceText",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.6.0"
+        },
+        "properties": {
+          "Regular Expression": "(?m)^(\\d+),([^,]+),([^,]+),(\\d+),(\\d+\\.\\d+),([^,]+),([^,]+),([^,\\n]+)",
+          "Replacement Value": "$1,$2,$3,$4,${literal('$5'):multiply(1.1):format('%.2f')},$6,$7,$8",
+          "Replacement Strategy": "Regex Replace",
+          "Evaluation Mode": "Line-by-Line"
+        },
+        "propertyDescriptors": {},
+        "schedulingPeriod": "0 sec",
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "executionNode": "ALL",
+        "penaltyDuration": "30 sec",
+        "yieldDuration": "1 sec",
+        "bulletinLevel": "WARN",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": [],
+        "componentType": "PROCESSOR",
+        "groupIdentifier": "root"
+      },
+      {
+        "identifier": "bulk-upsert",
+        "instanceIdentifier": "00000000-0000-0000-0001-000000000008",
+        "name": "Bulk Upsert to Source Table",
+        "comments": "Upserts the updated data back into the source table using ON CONFLICT",
+        "position": {
+          "x": 100.0,
+          "y": 1150.0
+        },
+        "type": "org.apache.nifi.processors.postgresql.PostgreSQLBulkUpsert",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-postgresql-processors-nar",
+          "version": "2.6.0"
+        },
+        "properties": {
+          "PostgreSQL Connection Pool": "#{pg.connection.pool}",
+          "Table Name": "#{source.table.name}",
+          "Schema Name": "public",
+          "Input Format": "CSV",
+          "CSV Format": "Default",
+          "CSV Header": "Use Header Line",
+          "Conflict Target": "id",
+          "Update Columns": "name,email,age,salary,department,hire_date,is_active,last_updated",
+          "Batch Size": "1000",
+          "Output Format": "CSV",
+          "Include Original": "false"
+        },
+        "propertyDescriptors": {},
+        "schedulingPeriod": "0 sec",
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "executionNode": "ALL",
+        "penaltyDuration": "30 sec",
+        "yieldDuration": "1 sec",
+        "bulletinLevel": "WARN",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": [],
+        "componentType": "PROCESSOR",
+        "groupIdentifier": "root"
+      },
+      {
+        "identifier": "bulk-load-target",
+        "instanceIdentifier": "00000000-0000-0000-0001-000000000009",
+        "name": "Bulk Load to Target Table",
+        "comments": "Loads upsert results into the target table",
+        "position": {
+          "x": 100.0,
+          "y": 1300.0
+        },
+        "type": "org.apache.nifi.processors.postgresql.PostgreSQLBulkLoad",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-postgresql-processors-nar",
+          "version": "2.6.0"
+        },
+        "properties": {
+          "PostgreSQL Connection Pool": "#{pg.connection.pool}",
+          "Table Name": "#{target.table.name}",
+          "Schema Name": "public",
+          "Input Format": "CSV",
+          "CSV Format": "Default",
+          "CSV Header": "Use Header Line",
+          "Conflict Action": "Error on Conflict",
+          "Batch Size": "1000"
+        },
+        "propertyDescriptors": {},
+        "schedulingPeriod": "0 sec",
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "executionNode": "ALL",
+        "penaltyDuration": "30 sec",
+        "yieldDuration": "1 sec",
+        "bulletinLevel": "WARN",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": [],
+        "componentType": "PROCESSOR",
+        "groupIdentifier": "root"
+      },
+      {
+        "identifier": "log-success",
+        "instanceIdentifier": "00000000-0000-0000-0001-000000000010",
+        "name": "Log Success",
+        "comments": "Logs successful completion of the workflow",
+        "position": {
+          "x": 100.0,
+          "y": 1450.0
+        },
+        "type": "org.apache.nifi.processors.standard.LogAttribute",
+        "bundle": {
+          "group": "org.apache.nifi",
+          "artifact": "nifi-standard-nar",
+          "version": "2.6.0"
+        },
+        "properties": {
+          "Log Level": "info",
+          "Log Payload": "true",
+          "Attributes to Log": "",
+          "Attributes to Ignore": "",
+          "Log prefix": "WORKFLOW COMPLETE: "
+        },
+        "propertyDescriptors": {},
+        "schedulingPeriod": "0 sec",
+        "schedulingStrategy": "TIMER_DRIVEN",
+        "executionNode": "ALL",
+        "penaltyDuration": "30 sec",
+        "yieldDuration": "1 sec",
+        "bulletinLevel": "WARN",
+        "runDurationMillis": 0,
+        "concurrentlySchedulableTaskCount": 1,
+        "autoTerminatedRelationships": ["success"],
+        "componentType": "PROCESSOR",
+        "groupIdentifier": "root"
+      }
+    ],
+    "inputPorts": [],
+    "outputPorts": [],
+    "connections": [
+      {
+        "identifier": "conn-01",
+        "instanceIdentifier": "00000000-0000-0000-0002-000000000001",
+        "name": "",
+        "source": {
+          "id": "generate-flowfile",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Generate Test Data Trigger"
+        },
+        "destination": {
+          "id": "create-table-sql",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Create Source Table"
+        },
+        "selectedRelationships": ["success"],
+        "labelIndex": 1,
+        "zIndex": 0
+      },
+      {
+        "identifier": "conn-02",
+        "instanceIdentifier": "00000000-0000-0000-0002-000000000002",
+        "name": "",
+        "source": {
+          "id": "create-table-sql",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Create Source Table"
+        },
+        "destination": {
+          "id": "create-target-table-sql",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Create Target Table"
+        },
+        "selectedRelationships": ["failure"],
+        "labelIndex": 1,
+        "zIndex": 0
+      },
+      {
+        "identifier": "conn-03",
+        "instanceIdentifier": "00000000-0000-0000-0002-000000000003",
+        "name": "",
+        "source": {
+          "id": "create-table-sql",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Create Source Table"
+        },
+        "destination": {
+          "id": "generate-test-data",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Generate Random Test Data (CSV)"
+        },
+        "selectedRelationships": ["failure"],
+        "labelIndex": 1,
+        "zIndex": 0
+      },
+      {
+        "identifier": "conn-04",
+        "instanceIdentifier": "00000000-0000-0000-0002-000000000004",
+        "name": "",
+        "source": {
+          "id": "create-target-table-sql",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Create Target Table"
+        },
+        "destination": {
+          "id": "generate-test-data",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Generate Random Test Data (CSV)"
+        },
+        "selectedRelationships": ["failure"],
+        "labelIndex": 1,
+        "zIndex": 0
+      },
+      {
+        "identifier": "conn-05",
+        "instanceIdentifier": "00000000-0000-0000-0002-000000000005",
+        "name": "",
+        "source": {
+          "id": "generate-test-data",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Generate Random Test Data (CSV)"
+        },
+        "destination": {
+          "id": "bulk-load-initial",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Bulk Load to Source Table"
+        },
+        "selectedRelationships": ["success"],
+        "labelIndex": 1,
+        "zIndex": 0
+      },
+      {
+        "identifier": "conn-06",
+        "instanceIdentifier": "00000000-0000-0000-0002-000000000006",
+        "name": "",
+        "source": {
+          "id": "bulk-load-initial",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Bulk Load to Source Table"
+        },
+        "destination": {
+          "id": "bulk-export",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Bulk Export from Source Table"
+        },
+        "selectedRelationships": ["success"],
+        "labelIndex": 1,
+        "zIndex": 0
+      },
+      {
+        "identifier": "conn-07",
+        "instanceIdentifier": "00000000-0000-0000-0002-000000000007",
+        "name": "",
+        "source": {
+          "id": "bulk-export",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Bulk Export from Source Table"
+        },
+        "destination": {
+          "id": "update-salary-field",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Update Salary Field (+10%)"
+        },
+        "selectedRelationships": ["success"],
+        "labelIndex": 1,
+        "zIndex": 0
+      },
+      {
+        "identifier": "conn-08",
+        "instanceIdentifier": "00000000-0000-0000-0002-000000000008",
+        "name": "",
+        "source": {
+          "id": "update-salary-field",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Update Salary Field (+10%)"
+        },
+        "destination": {
+          "id": "bulk-upsert",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Bulk Upsert to Source Table"
+        },
+        "selectedRelationships": ["success"],
+        "labelIndex": 1,
+        "zIndex": 0
+      },
+      {
+        "identifier": "conn-09",
+        "instanceIdentifier": "00000000-0000-0000-0002-000000000009",
+        "name": "",
+        "source": {
+          "id": "bulk-upsert",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Bulk Upsert to Source Table"
+        },
+        "destination": {
+          "id": "bulk-load-target",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Bulk Load to Target Table"
+        },
+        "selectedRelationships": ["success"],
+        "labelIndex": 1,
+        "zIndex": 0
+      },
+      {
+        "identifier": "conn-10",
+        "instanceIdentifier": "00000000-0000-0000-0002-000000000010",
+        "name": "",
+        "source": {
+          "id": "bulk-load-target",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Bulk Load to Target Table"
+        },
+        "destination": {
+          "id": "log-success",
+          "type": "PROCESSOR",
+          "groupId": "root",
+          "name": "Log Success"
+        },
+        "selectedRelationships": ["success"],
+        "labelIndex": 1,
+        "zIndex": 0
+      }
+    ],
+    "labels": [
+      {
+        "identifier": "label-01",
+        "instanceIdentifier": "00000000-0000-0000-0003-000000000001",
+        "label": "PostgreSQL Bulk Operations Workflow\n\nThis flow demonstrates:\n1. Table creation\n2. Random data generation\n3. Bulk Load (CSV → PostgreSQL)\n4. Bulk Export (PostgreSQL → CSV)\n5. Data transformation (salary update)\n6. Bulk Upsert (update existing records)\n7. Secondary Bulk Load (to target table)\n\nParameters:\n- source.table.name: Name of the source table\n- target.table.name: Name of the target table\n- pg.connection.pool: PostgreSQL connection pool service",
+        "position": {
+          "x": 500.0,
+          "y": 100.0
+        },
+        "width": 400.0,
+        "height": 300.0,
+        "style": {
+          "font-size": "12px"
+        },
+        "componentType": "LABEL",
+        "groupIdentifier": "root"
+      }
+    ],
+    "funnels": [],
+    "controllerServices": [],
+    "defaultBackPressureObjectThreshold": 10000,
+    "defaultBackPressureDataSizeThreshold": "1 GB",
+    "defaultFlowFileExpiration": "0 sec",
+    "flowFileConcurrency": "UNBOUNDED",
+    "flowFileOutboundPolicy": "STREAM_WHEN_AVAILABLE",
+    "parameterContextName": "PostgreSQL-Parameters",
+    "scheduledState": "DISABLED",
+    "executionEngine": "STANDARD",
+    "maxConcurrentTasks": 1,
+    "statelessFlowTimeout": "1 min",
+    "componentType": "PROCESS_GROUP"
+  },
+  "parameterContexts": [
+    {
+      "identifier": "postgresql-params",
+      "instanceIdentifier": "00000000-0000-0000-0004-000000000001",
+      "name": "PostgreSQL-Parameters",
+      "description": "Parameters for PostgreSQL bulk operations workflow",
+      "parameters": [
+        {
+          "name": "source.table.name",
+          "description": "Name of the source table for initial load and upsert operations",
+          "sensitive": false,
+          "value": "employees"
+        },
+        {
+          "name": "target.table.name",
+          "description": "Name of the target table for storing upsert results",
+          "sensitive": false,
+          "value": "employees_updated"
+        },
+        {
+          "name": "pg.host",
+          "description": "PostgreSQL server hostname",
+          "sensitive": false,
+          "value": "localhost"
+        },
+        {
+          "name": "pg.port",
+          "description": "PostgreSQL server port",
+          "sensitive": false,
+          "value": "5432"
+        },
+        {
+          "name": "pg.database",
+          "description": "PostgreSQL database name",
+          "sensitive": false,
+          "value": "nifi_test"
+        },
+        {
+          "name": "pg.username",
+          "description": "PostgreSQL username",
+          "sensitive": false,
+          "value": "nifi_user"
+        },
+        {
+          "name": "pg.password",
+          "description": "PostgreSQL password",
+          "sensitive": true,
+          "value": ""
+        },
+        {
+          "name": "pg.connection.pool",
+          "description": "PostgreSQL Connection Pool Controller Service ID",
+          "sensitive": false,
+          "value": "PostgreSQLConnectionPool"
+        }
+      ],
+      "inheritedParameterContexts": [],
+      "componentType": "PARAMETER_CONTEXT"
+    }
+  ],
+  "flowEncodingVersion": "1.0",
+  "flowSnapshot": {
+    "externalControllerServices": {},
+    "parameterContexts": {},
+    "flowContents": {},
+    "snapshotMetadata": {
+      "author": "NiFi User",
+      "comments": "PostgreSQL Bulk Operations Workflow Template",
+      "timestamp": 0,
+      "version": 1
+    }
+  }
+}
+

@@ -24,10 +24,12 @@ import org.apache.nifi.annotation.behavior.SupportsSensitiveDynamicProperties;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.Tags;
  
+import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.controller.ConfigurationContext;
+import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.dbcp.AbstractDBCPConnectionPool;
  
 import org.apache.nifi.dbcp.utils.DataSourceConfiguration;
@@ -46,11 +48,14 @@ import org.apache.nifi.postgresql.service.util.ConnectionPoolSettings;
 import java.sql.Connection;
 //import java.sql.Driver;
 import java.sql.DriverManager;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import static org.apache.nifi.components.ConfigVerificationResult.Outcome.FAILED;
+import static org.apache.nifi.components.ConfigVerificationResult.Outcome.SUCCESSFUL;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.DB_PASSWORD;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.DB_USER;
 import static org.apache.nifi.dbcp.utils.DBCPProperties.EVICTION_RUN_PERIOD;
@@ -333,5 +338,209 @@ public class PostgreSQLConnectionPool extends AbstractDBCPConnectionPool impleme
                 context.getProperty(ConnectionSettings.SSL_KEY).evaluateAttributeExpressions().getValue(),
                 context.getProperty(ConnectionSettings.SSL_ROOT_CERTIFICATE).evaluateAttributeExpressions().getValue()
         );
+    }
+
+    /**
+     * Override verify to provide enhanced error messages with root cause extraction for PostgreSQL connections.
+     * This provides more detailed diagnostic information when connection attempts fail.
+     */
+    @Override
+    public List<ConfigVerificationResult> verify(final ConfigurationContext context, final ComponentLog verificationLogger, final Map<String, String> variables) {
+        final List<ConfigVerificationResult> results = new ArrayList<>();
+
+        try {
+            // Attempt the standard verification from parent class
+            final List<ConfigVerificationResult> parentResults = super.verify(context, verificationLogger, variables);
+            
+            // Enhance any failure results with better PostgreSQL-specific diagnostics
+            for (ConfigVerificationResult result : parentResults) {
+                if (result.getOutcome() == FAILED && result.getVerificationStepName().equals("Establish Connection")) {
+                    // Extract and enhance the error message with root cause and PostgreSQL-specific guidance
+                    final String originalExplanation = result.getExplanation();
+                    final String enhancedExplanation = enhanceConnectionErrorMessage(originalExplanation, context);
+                    
+                    results.add(new ConfigVerificationResult.Builder()
+                            .verificationStepName(result.getVerificationStepName())
+                            .outcome(FAILED)
+                            .explanation(enhancedExplanation)
+                            .build());
+                } else {
+                    // Keep other results as-is
+                    results.add(result);
+                }
+            }
+            
+            return results;
+            
+        } catch (final Exception e) {
+            verificationLogger.error("Unexpected error during verification", e);
+            final String rootCauseMessage = getRootCauseMessage(e);
+            results.add(new ConfigVerificationResult.Builder()
+                    .verificationStepName("Verify Configuration")
+                    .outcome(FAILED)
+                    .explanation("Verification failed: " + rootCauseMessage)
+                    .build());
+            return results;
+        }
+    }
+
+    /**
+     * Enhance connection error messages with root cause and PostgreSQL-specific troubleshooting guidance.
+     */
+    private String enhanceConnectionErrorMessage(final String originalMessage, final ConfigurationContext context) {
+        final StringBuilder enhanced = new StringBuilder();
+        
+        // Start with the original message but try to extract more details
+        enhanced.append("Failed to establish PostgreSQL connection.\n\n");
+        
+        // Extract the JDBC URL being used (mask password if present)
+        try {
+            final String jdbcUrl = getUrl(context);
+            final String maskedUrl = jdbcUrl.replaceAll("([&?]password=)[^&]*", "$1***");
+            enhanced.append("Connection URL: ").append(maskedUrl).append("\n");
+        } catch (Exception e) {
+            enhanced.append("Connection URL: Unable to determine\n");
+        }
+        
+        // Extract connection details for better diagnostics
+        try {
+            final String host = context.getProperty(POSTGRESQL_HOST_NAME).evaluateAttributeExpressions().getValue();
+            final String port = context.getProperty(POSTGRESQL_PORT).evaluateAttributeExpressions().getValue();
+            final String database = context.getProperty(POSTGRESQL_DATABASE).evaluateAttributeExpressions().getValue();
+            
+            if (host != null) {
+                enhanced.append("Host: ").append(host).append("\n");
+            }
+            if (port != null) {
+                enhanced.append("Port: ").append(port).append("\n");
+            }
+            if (database != null) {
+                enhanced.append("Database: ").append(database).append("\n");
+            }
+        } catch (Exception e) {
+            // Continue even if we can't extract connection details
+        }
+        
+        // Extract and display the root cause
+        enhanced.append("\nRoot Cause: ");
+        if (originalMessage != null && originalMessage.contains("The connection attempt failed")) {
+            // Try to extract more specific error from the original message
+            enhanced.append(extractRootCauseFromMessage(originalMessage));
+        } else if (originalMessage != null) {
+            enhanced.append(originalMessage);
+        } else {
+            enhanced.append("Unknown error");
+        }
+        
+        // Add troubleshooting guidance based on common issues
+        enhanced.append("\n\nTroubleshooting Tips:\n");
+        enhanced.append("1. Verify PostgreSQL is running and accessible at the specified host and port\n");
+        enhanced.append("2. Check that the database exists and the user has access permissions\n");
+        enhanced.append("3. If you are using Snowflake, verify your Snowflake network rules and external access integration is configured to allow connections to PostgreSQL\n");
+        enhanced.append("4. Verify correct port (PostgreSQL default is 5432)\n");
+        enhanced.append("5. Test connectivity outside of NiFi using the psql command: psql -h <host> -p <port> -U <user> -d <database>\n");
+        enhanced.append("6. For SSL connections, verify SSL mode and certificate configurations\n");
+        
+        return enhanced.toString();
+    }
+
+    /**
+     * Extract the root cause message from an exception, traversing the entire cause chain.
+     * This is critical for PostgreSQL connections because DBCP wraps exceptions multiple times.
+     * 
+     * @param throwable The exception to analyze
+     * @return The root cause message with exception type
+     */
+    private String getRootCauseMessage(final Throwable throwable) {
+        if (throwable == null) {
+            return "Unknown error";
+        }
+        
+        // Build a chain of all exception messages to provide complete context
+        final List<String> errorChain = new ArrayList<>();
+        Throwable current = throwable;
+        Throwable rootCause = throwable;
+        
+        // Traverse the exception chain
+        while (current != null) {
+            rootCause = current;  // Keep updating to get the deepest cause
+            
+            final String message = current.getMessage();
+            final String exceptionType = current.getClass().getSimpleName();
+            
+            if (message != null && !message.trim().isEmpty()) {
+                // Add exception type and message if not already in chain
+                final String fullMessage = exceptionType + ": " + message;
+                if (!errorChain.contains(fullMessage)) {
+                    errorChain.add(fullMessage);
+                }
+            }
+            
+            current = current.getCause();
+        }
+        
+        // Build the comprehensive error message
+        final StringBuilder result = new StringBuilder();
+        
+        if (!errorChain.isEmpty()) {
+            // Show the root cause first (most specific error)
+            result.append(errorChain.get(errorChain.size() - 1));
+            
+            // If there are multiple layers, show the chain
+            if (errorChain.size() > 1) {
+                result.append("\n\nException Chain (outer to inner):");
+                for (int i = 0; i < errorChain.size(); i++) {
+                    result.append("\n  ").append(i + 1).append(". ").append(errorChain.get(i));
+                }
+            }
+        } else {
+            // Fallback if no messages found
+            result.append(rootCause.getClass().getName());
+        }
+        
+        return result.toString();
+    }
+
+    /**
+     * Extract root cause details from the error message string when we don't have the exception object.
+     * This parses the message from DBCP which often contains nested exception information.
+     */
+    private String extractRootCauseFromMessage(final String message) {
+        if (message == null || message.trim().isEmpty()) {
+            return "Connection attempt failed with no additional details";
+        }
+        
+        // Common PostgreSQL connection error patterns
+        if (message.contains("Connection refused")) {
+            return "Connection refused - PostgreSQL server is not accepting connections. " +
+                   "Verify the server is running and the port is correct.";
+        }
+        if (message.contains("timeout")) {
+            return "Connection timeout - PostgreSQL server did not respond within the timeout period. " +
+                   "Check network connectivity and firewall rules.";
+        }
+        if (message.contains("No route to host")) {
+            return "No route to host - Network path to PostgreSQL server is unreachable. " +
+                   "Verify hostname/IP address and network configuration.";
+        }
+        if (message.contains("Unknown host")) {
+            return "Unknown host - Cannot resolve the PostgreSQL hostname. " +
+                   "Verify DNS settings and hostname spelling.";
+        }
+        if (message.contains("authentication failed") || message.contains("password authentication failed")) {
+            return "Authentication failed - Invalid username or password. " +
+                   "Verify credentials and check pg_hba.conf authentication method.";
+        }
+        if (message.contains("database") && message.contains("does not exist")) {
+            return "Database does not exist - The specified database was not found on the server. " +
+                   "Verify the database name is correct.";
+        }
+        if (message.contains("SSL")) {
+            return "SSL/TLS connection error - Problem with secure connection. " +
+                   "Verify SSL mode setting and certificate configuration.";
+        }
+        
+        // If no specific pattern matched, return the full message
+        return message;
     }
 }

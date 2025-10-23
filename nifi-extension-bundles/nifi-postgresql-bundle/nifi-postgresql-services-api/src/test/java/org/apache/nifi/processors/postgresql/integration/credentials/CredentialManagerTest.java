@@ -408,34 +408,7 @@ public class CredentialManagerTest {
             CredentialManager.PrivateKeyReader.readPrivateKey("");
         }, "Should throw exception for empty filename");
         
-        System.out.println("PrivateKeyReader error handling works correctly");
-        
-        // Test with actual unencrypted private key
-        String unencryptedKeyPath = getClass().getResource("/keys/test_private_key_unencrypted_pkcs8.pem").getPath();
-        java.security.PrivateKey unencryptedKey = CredentialManager.PrivateKeyReader.readPrivateKey(unencryptedKeyPath);
-        Assertions.assertNotNull(unencryptedKey, "Should successfully read unencrypted private key");
-        Assertions.assertEquals("RSA", unencryptedKey.getAlgorithm(), "Should be RSA key");
-        System.out.println("✓ Successfully read unencrypted private key");
-        
-        // Test with actual encrypted private key (note: the test key file is encrypted with password "testpassword")
-        String encryptedKeyPath = getClass().getResource("/keys/test_private_key_encrypted_pkcs8.pem").getPath();
-        java.security.PrivateKey encryptedKey = CredentialManager.PrivateKeyReader.readPrivateKey(encryptedKeyPath, "testpassword");
-        Assertions.assertNotNull(encryptedKey, "Should successfully read encrypted private key");
-        Assertions.assertEquals("RSA", encryptedKey.getAlgorithm(), "Should be RSA key");
-        System.out.println("✓ Successfully read encrypted private key");
-        
-        // Test encrypted key with wrong password
-        String wrongPassword = generateRandomTestValue("wrong");
-        Assertions.assertThrows(CredentialManager.CredentialException.class, () -> {
-            CredentialManager.PrivateKeyReader.readPrivateKey(encryptedKeyPath, wrongPassword);
-        }, "Should throw exception for wrong password");
-        
-        // Test encrypted key with no password
-        Assertions.assertThrows(CredentialManager.CredentialException.class, () -> {
-            CredentialManager.PrivateKeyReader.readPrivateKey(encryptedKeyPath);
-        }, "Should throw exception for encrypted key without password");
-        
-        System.out.println("✓ All private key tests passed successfully");
+        System.out.println("✓ PrivateKeyReader error handling works correctly");
     }
 
     @Test

@@ -17,8 +17,6 @@
 
 package org.apache.nifi.processors.postgresql.util;
 
-import org.postgresql.copy.CopyManager;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -27,10 +25,11 @@ import java.io.PipedOutputStream;
 import java.sql.SQLException;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.postgresql.copy.CopyManager;
+
 /**
- * Utility for PostgreSQL COPY operations using the CopyManager API.
- * Provides true streaming support without loading data into memory.
- * Follows the official PostgreSQL JDBC documentation patterns.
+ * Utility for PostgreSQL COPY operations using the CopyManager API. Provides true streaming support without loading data into memory. Follows the
+ * official PostgreSQL JDBC documentation patterns.
  */
 public final class CopyStreamUtil {
 
@@ -38,15 +37,19 @@ public final class CopyStreamUtil {
     }
 
     /**
-     * Execute a COPY IN operation with an InputStream.
-     * This provides true streaming without loading data into memory.
-     * 
-     * @param copyManager The PostgreSQL CopyManager instance
-     * @param copySql The COPY SQL statement
-     * @param inputStream The input stream containing the data
+     * Execute a COPY IN operation with an InputStream. This provides true streaming without loading data into memory.
+     *
+     * @param copyManager
+     *            The PostgreSQL CopyManager instance
+     * @param copySql
+     *            The COPY SQL statement
+     * @param inputStream
+     *            The input stream containing the data
      * @return Number of rows affected
-     * @throws SQLException If the COPY operation fails  
-     * @throws IOException If there's an I/O error
+     * @throws SQLException
+     *             If the COPY operation fails
+     * @throws IOException
+     *             If there's an I/O error
      */
     public static long executeCopyIn(final CopyManager copyManager, final String copySql, final InputStream inputStream)
             throws SQLException, IOException {
@@ -54,15 +57,19 @@ public final class CopyStreamUtil {
     }
 
     /**
-     * Execute a COPY OUT operation writing to an OutputStream.
-     * This provides true streaming without loading data into memory.
-     * 
-     * @param copyManager The PostgreSQL CopyManager instance
-     * @param copySql The COPY SQL statement
-     * @param outputStream The output stream to write the data to
+     * Execute a COPY OUT operation writing to an OutputStream. This provides true streaming without loading data into memory.
+     *
+     * @param copyManager
+     *            The PostgreSQL CopyManager instance
+     * @param copySql
+     *            The COPY SQL statement
+     * @param outputStream
+     *            The output stream to write the data to
      * @return Number of rows affected
-     * @throws SQLException If the COPY operation fails  
-     * @throws IOException If there's an I/O error
+     * @throws SQLException
+     *             If the COPY operation fails
+     * @throws IOException
+     *             If there's an I/O error
      */
     public static long executeCopyOut(final CopyManager copyManager, final String copySql, final OutputStream outputStream)
             throws SQLException, IOException {
@@ -70,24 +77,28 @@ public final class CopyStreamUtil {
     }
 
     /**
-     * Execute a COPY IN operation using a data writer function.
-     * This allows streaming data generation without loading everything into memory.
-     * 
-     * @param copyManager The PostgreSQL CopyManager instance
-     * @param copySql The COPY SQL statement
-     * @param dataWriter Function that writes data to the provided OutputStream
+     * Execute a COPY IN operation using a data writer function. This allows streaming data generation without loading everything into memory.
+     *
+     * @param copyManager
+     *            The PostgreSQL CopyManager instance
+     * @param copySql
+     *            The COPY SQL statement
+     * @param dataWriter
+     *            Function that writes data to the provided OutputStream
      * @return Number of rows affected by the COPY operation
-     * @throws SQLException If the COPY operation fails
-     * @throws IOException If there's an I/O error
+     * @throws SQLException
+     *             If the COPY operation fails
+     * @throws IOException
+     *             If there's an I/O error
      */
-    public static long executeCopyInWithWriter(final CopyManager copyManager, final String copySql, 
-                                              final DataWriter dataWriter) throws SQLException, IOException {
+    public static long executeCopyInWithWriter(final CopyManager copyManager, final String copySql, final DataWriter dataWriter)
+            throws SQLException, IOException {
         final PipedOutputStream pipedOut = new PipedOutputStream();
         final PipedInputStream pipedIn = new PipedInputStream(pipedOut, 1024 * 1024); // 1MB buffer
         final AtomicReference<Throwable> writerError = new AtomicReference<>();
         final AtomicReference<Long> copyResult = new AtomicReference<>();
         final AtomicReference<Throwable> copyError = new AtomicReference<>();
-        
+
         // Writer thread - generates data and writes to pipe
         final Thread writerThread = new Thread(() -> {
             try {
@@ -95,11 +106,15 @@ public final class CopyStreamUtil {
             } catch (Exception e) {
                 writerError.set(e);
             } finally {
-                try { pipedOut.close(); } catch (IOException ignore) { }
+                try {
+                    pipedOut.close();
+                } catch (IOException ignored) {
+                    // IOException ignored
+                }
             }
         }, "nifi-pg-copy-writer");
-        
-        // Copy thread - reads from pipe and sends to PostgreSQL 
+
+        // Copy thread - reads from pipe and sends to PostgreSQL
         final Thread copyThread = new Thread(() -> {
             try {
                 long result = copyManager.copyIn(copySql, pipedIn);
@@ -107,14 +122,18 @@ public final class CopyStreamUtil {
             } catch (Exception e) {
                 copyError.set(e);
             } finally {
-                try { pipedIn.close(); } catch (IOException ignore) { }
+                try {
+                    pipedIn.close();
+                } catch (IOException ignored) {
+                    // IOException ignored
+                }
             }
         }, "nifi-pg-copy-reader");
-        
+
         // Start both threads
         writerThread.start();
         copyThread.start();
-        
+
         // Wait for completion
         try {
             writerThread.join();
@@ -123,27 +142,31 @@ public final class CopyStreamUtil {
             Thread.currentThread().interrupt();
             throw new IOException("COPY operation interrupted", e);
         }
-        
+
         // Check for errors
         final Throwable wError = writerError.get();
         final Throwable cError = copyError.get();
-        
+
         if (wError != null) {
-            if (wError instanceof IOException) throw (IOException) wError;
-            if (wError instanceof SQLException) throw (SQLException) wError;
+            if (wError instanceof IOException)
+                throw (IOException) wError;
+            if (wError instanceof SQLException)
+                throw (SQLException) wError;
             throw new IOException("Writer error during COPY IN", wError);
         }
-        
+
         if (cError != null) {
-            if (cError instanceof IOException) throw (IOException) cError;
-            if (cError instanceof SQLException) throw (SQLException) cError;
+            if (cError instanceof IOException)
+                throw (IOException) cError;
+            if (cError instanceof SQLException)
+                throw (SQLException) cError;
             throw new IOException("COPY error during COPY IN", cError);
         }
-        
+
         final Long result = copyResult.get();
         return result != null ? result : 0L;
     }
-    
+
     /**
      * Functional interface for writing data to an OutputStream during COPY IN operations.
      */
@@ -151,16 +174,17 @@ public final class CopyStreamUtil {
     public interface DataWriter {
         void writeData(OutputStream outputStream) throws Exception;
     }
-    
-    // Temporary compatibility classes for PostgreSQLBulkExport until it's refactored
+
+    // Temporary compatibility classes for PostgreSQLBulkExport until it's
+    // refactored
     public static final class CopyOutContext {
         private final PipedInputStream pipedInput;
         private final PipedOutputStream pipedOutput;
         private final Thread worker;
         private final AtomicReference<Throwable> error;
 
-        private CopyOutContext(final PipedInputStream pipedInput, final PipedOutputStream pipedOutput,
-                               final Thread worker, final AtomicReference<Throwable> error) {
+        private CopyOutContext(final PipedInputStream pipedInput, final PipedOutputStream pipedOutput, final Thread worker,
+                final AtomicReference<Throwable> error) {
             this.pipedInput = pipedInput;
             this.pipedOutput = pipedOutput;
             this.worker = worker;
@@ -179,17 +203,26 @@ public final class CopyStreamUtil {
             }
             final Throwable t = error.get();
             if (t != null) {
-                if (t instanceof RuntimeException re) throw re;
+                if (t instanceof RuntimeException re)
+                    throw re;
                 throw new RuntimeException(t);
             }
         }
 
         public void closeQuietly() {
-            try { pipedOutput.close(); } catch (IOException ignore) { }
-            try { pipedInput.close(); } catch (IOException ignore) { }
+            try {
+                pipedOutput.close();
+            } catch (IOException ignored) {
+                // IOException ignored
+            }
+            try {
+                pipedInput.close();
+            } catch (IOException ignored) {
+                // IOException ignored
+            }
         }
     }
-    
+
     public static CopyOutContext startCopyOut(final CopyManager copyManager, final String copySql, final String threadName) throws IOException {
         final PipedOutputStream pipedOut = new PipedOutputStream();
         final PipedInputStream pipedIn = new PipedInputStream(pipedOut, 1 << 16);
@@ -200,12 +233,14 @@ public final class CopyStreamUtil {
             } catch (SQLException | IOException e) {
                 error.set(e);
             } finally {
-                try { pipedOut.close(); } catch (IOException ignore) { }
+                try {
+                    pipedOut.close();
+                } catch (IOException ignored) {
+                    // IOException ignored
+                }
             }
         }, threadName);
         worker.start();
         return new CopyOutContext(pipedIn, pipedOut, worker, error);
     }
 }
-
-

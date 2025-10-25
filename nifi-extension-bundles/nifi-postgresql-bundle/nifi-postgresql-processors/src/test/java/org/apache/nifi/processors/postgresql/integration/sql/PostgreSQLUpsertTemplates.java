@@ -18,8 +18,8 @@
 package org.apache.nifi.processors.postgresql.integration.sql;
 
 /**
- * SQL templates for PostgreSQL upsert operations in ETL pipeline tests.
- * Contains complex CTE-based upsert templates with deduplication and JSONB merge functionality.
+ * SQL templates for PostgreSQL upsert operations in ETL pipeline tests. Contains complex CTE-based upsert templates with deduplication and JSONB
+ * merge functionality.
  */
 public final class PostgreSQLUpsertTemplates {
 
@@ -28,77 +28,49 @@ public final class PostgreSQLUpsertTemplates {
     }
 
     /**
-     * Complex ETL upsert template with CTE-based deduplication and JSONB merge.
-     * This template performs the following operations:
-     * 1. deflated_records CTE: Deduplicates records using array_agg with temporal ordering
-     * 2. upserted_data CTE: Performs INSERT...ON CONFLICT with JSONB merge
-     * 3. Final SELECT: Returns all processed records with proper type casting
-     * 
-     * Features:
-     * - Temporal deduplication using _etl_modified_ timestamps
-     * - JSONB merge aggregation in chronological order
-     * - Composite primary key conflict resolution (_context_id_, primary_key)
-     * - Complete field updates with excluded values
-     * - Type casting for consistent output format
-     * 
+     * Complex ETL upsert template with CTE-based deduplication and JSONB merge. This template performs the following operations: 1. deflated_records
+     * CTE: Deduplicates records using array_agg with temporal ordering 2. upserted_data CTE: Performs INSERT...ON CONFLICT with JSONB merge 3. Final
+     * SELECT: Returns all processed records with proper type casting
+     *
+     * Features: - Temporal deduplication using _etl_modified_ timestamps - JSONB merge aggregation in chronological order - Composite primary key
+     * conflict resolution (_context_id_, primary_key) - Complete field updates with excluded values - Type casting for consistent output format
+     *
      * @return The complete PostgreSQL upsert SQL template
      */
     public static String getComplexETLUpsertTemplate() {
-        return "with deflated_records as (" +
-            "    select" +
-            "        (array_agg(_etl_run_id_ ORDER BY _etl_modified_ DESC))[1] AS _etl_run_id_," +
-            "        (array_agg(_schema_class_ ORDER BY _etl_modified_ DESC))[1] AS _schema_class_," +
-            "        _context_id_," +
-            "        (array_agg(fulltablename ORDER BY _etl_modified_ DESC))[1] AS fulltablename," +
-            "        (array_agg(operation_type ORDER BY _etl_modified_ DESC))[1] AS operation_type," +
-            "        (array_agg(name ORDER BY _etl_modified_ DESC))[1] AS name," +
-            "        primary_key," +
-            "        (array_agg(_is_deleted_ ORDER BY _etl_modified_ DESC))[1] AS _is_deleted_," +
-            "        (array_agg(committedtime ORDER BY _etl_modified_ DESC))[1] AS committedtime," +
-            "        (array_agg(extractedtime ORDER BY _etl_modified_ DESC))[1] AS extractedtime," +
-            "        (array_agg(sortorder ORDER BY _etl_modified_ DESC))[1] AS sortorder," +
-            "        (array_agg(loaded_seq ORDER BY _etl_modified_ DESC))[1] AS loaded_seq," +
-            "        jsonb_merge_agg(src::jsonb ORDER BY _etl_modified_ ASC) AS src," +
-            "        (array_agg(_etl_modified_ ORDER BY _etl_modified_ DESC))[1] AS _etl_modified_," +
-            "        (array_agg(_source_extracted_ ORDER BY _etl_modified_ DESC))[1] AS _source_extracted_" +
-            "    from ${temp_table} stg" +
-            "    group by _context_id_, primary_key" +
-            "), upserted_data as (" +
-            "    insert into ${target_table}" +
-            "    select * from deflated_records" +
-            "    on conflict (\"_context_id_\", \"primary_key\") do update set" +
-            "        \"_etl_run_id_\" = excluded.\"_etl_run_id_\"," +
-            "        \"_schema_class_\" = excluded.\"_schema_class_\"," +
-            "        \"fulltablename\" = excluded.\"fulltablename\"," +
-            "        \"operation_type\" = excluded.\"operation_type\"," +
-            "        \"name\" = excluded.\"name\"," +
-            "        \"_is_deleted_\" = excluded.\"_is_deleted_\"," +
-            "        \"committedtime\" = excluded.\"committedtime\"," +
-            "        \"extractedtime\" = excluded.\"extractedtime\"," +
-            "        \"sortorder\" = excluded.\"sortorder\"," +
-            "        \"loaded_seq\" = excluded.\"loaded_seq\"," +
-            "        \"src\" = ${target_table}.\"src\" || excluded.\"src\"," +
-            "        \"_etl_modified_\" = excluded.\"_etl_modified_\"," +
-            "        \"_source_extracted_\" = excluded.\"_source_extracted_\"" +
-            "    returning *" +
-            ")" +
-            "select " +
-            "    \"_etl_run_id_\"::int8 as \"_etl_run_id_\", " +
-            "    \"_schema_class_\"::varchar(255) as \"_schema_class_\", " +
-            "    \"_context_id_\"::int8 as \"_context_id_\", " +
-            "    \"fulltablename\"::varchar(255) as \"fulltablename\", " +
-            "    \"operation_type\"::varchar(50) as \"operation_type\"," +
-            "    \"name\"::varchar(255) as \"name\", " +
-            "    \"primary_key\"::varchar(255) as \"primary_key\", " +
-            "    \"_is_deleted_\"::boolean as \"_is_deleted_\", " +
-            "    \"committedtime\"::timestamp as \"committedtime\", " +
-            "    \"extractedtime\"::timestamp as \"extractedtime\"," +
-            "    \"sortorder\"::int8 as \"sortorder\", " +
-            "    \"loaded_seq\"::int8 as \"loaded_seq\", " +
-            "    \"src\"::jsonb as \"src\", " +
-            "    \"_etl_modified_\"::timestamp as \"_etl_modified_\", " +
-            "    \"_source_extracted_\"::timestamp as \"_source_extracted_\"" +
-            "from upserted_data";
+        return "WITH deflated_records AS (" + "\n" + "    SELECT" + "\n"
+                + "        (array_agg(_etl_run_id_ ORDER BY _etl_modified_ DESC))[1] AS _etl_run_id_," + "\n"
+                + "        (array_agg(_schema_class_ ORDER BY _etl_modified_ DESC))[1] AS _schema_class_," + "\n" + "        _context_id_," + "\n"
+                + "        (array_agg(fulltablename ORDER BY _etl_modified_ DESC))[1] AS fulltablename," + "\n"
+                + "        (array_agg(operation_type ORDER BY _etl_modified_ DESC))[1] AS operation_type," + "\n"
+                + "        (array_agg(name ORDER BY _etl_modified_ DESC))[1] AS name," + "\n" + "        primary_key," + "\n"
+                + "        (array_agg(_is_deleted_ ORDER BY _etl_modified_ DESC))[1] AS _is_deleted_," + "\n"
+                + "        (array_agg(committedtime ORDER BY _etl_modified_ DESC))[1] AS committedtime," + "\n"
+                + "        (array_agg(extractedtime ORDER BY _etl_modified_ DESC))[1] AS extractedtime," + "\n"
+                + "        (array_agg(sortorder ORDER BY _etl_modified_ DESC))[1] AS sortorder," + "\n"
+                + "        (array_agg(loaded_seq ORDER BY _etl_modified_ DESC))[1] AS loaded_seq," + "\n"
+                + "        jsonb_merge_agg(src::jsonb ORDER BY _etl_modified_ ASC) AS src," + "\n"
+                + "        (array_agg(_etl_modified_ ORDER BY _etl_modified_ DESC))[1] AS _etl_modified_," + "\n"
+                + "        (array_agg(_source_extracted_ ORDER BY _etl_modified_ DESC))[1] AS _source_extracted_" + "\n"
+                + "    FROM ${temp_table} stg" + "\n" + "    GROUP BY _context_id_, primary_key" + "\n" + "), upserted_data AS (" + "\n"
+                + "    INSERT INTO ${target_table}" + "\n" + "    SELECT * FROM deflated_records" + "\n"
+                + "    ON CONFLICT (\"_context_id_\", \"primary_key\") DO UPDATE SET" + "\n" + "        \"_etl_run_id_\" = excluded.\"_etl_run_id_\","
+                + "\n" + "        \"_schema_class_\" = excluded.\"_schema_class_\"," + "\n"
+                + "        \"fulltablename\" = excluded.\"fulltablename\"," + "\n" + "        \"operation_type\" = excluded.\"operation_type\","
+                + "\n" + "        \"name\" = excluded.\"name\"," + "\n" + "        \"_is_deleted_\" = excluded.\"_is_deleted_\"," + "\n"
+                + "        \"committedtime\" = excluded.\"committedtime\"," + "\n" + "        \"extractedtime\" = excluded.\"extractedtime\"," + "\n"
+                + "        \"sortorder\" = excluded.\"sortorder\"," + "\n" + "        \"loaded_seq\" = excluded.\"loaded_seq\"," + "\n"
+                + "        \"src\" = ${target_table}.\"src\" || excluded.\"src\"," + "\n"
+                + "        \"_etl_modified_\" = excluded.\"_etl_modified_\"," + "\n"
+                + "        \"_source_extracted_\" = excluded.\"_source_extracted_\"" + "\n" + "    RETURNING *" + "\n" + ")" + "\n" + "SELECT" + "\n"
+                + "    \"_etl_run_id_\"::int8 AS \"_etl_run_id_\"," + "\n" + "    \"_schema_class_\"::varchar(255) AS \"_schema_class_\"," + "\n"
+                + "    \"_context_id_\"::int8 AS \"_context_id_\"," + "\n" + "    \"fulltablename\"::varchar(255) AS \"fulltablename\"," + "\n"
+                + "    \"operation_type\"::varchar(50) AS \"operation_type\"," + "\n" + "    \"name\"::varchar(255) AS \"name\"," + "\n"
+                + "    \"primary_key\"::varchar(255) AS \"primary_key\"," + "\n" + "    \"_is_deleted_\"::boolean AS \"_is_deleted_\"," + "\n"
+                + "    \"committedtime\"::timestamp AS \"committedtime\"," + "\n" + "    \"extractedtime\"::timestamp AS \"extractedtime\"," + "\n"
+                + "    \"sortorder\"::int8 AS \"sortorder\"," + "\n" + "    \"loaded_seq\"::int8 AS \"loaded_seq\"," + "\n"
+                + "    \"src\"::jsonb AS \"src\"," + "\n" + "    \"_etl_modified_\"::timestamp AS \"_etl_modified_\"," + "\n"
+                + "    \"_source_extracted_\"::timestamp AS \"_source_extracted_\"" + "\n" + "FROM upserted_data";
     }
 
 }

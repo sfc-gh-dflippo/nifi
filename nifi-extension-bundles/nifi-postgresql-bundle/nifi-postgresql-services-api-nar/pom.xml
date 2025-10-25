@@ -39,5 +39,9 @@
             <version>2.6.0</version>
             <type>nar</type>
         </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
     </dependencies>
 </project>

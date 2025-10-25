@@ -44,4 +44,18 @@
             <artifactId>postgresql</artifactId>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.nifi</groupId>
+                <artifactId>nifi-nar-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <configuration>
+                    <!-- Isolate bundled ParquetRecordSetWriter for Openflow compatibility -->
+                    <cloneDuringInstanceClassLoading>true</cloneDuringInstanceClassLoading>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

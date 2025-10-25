@@ -22,20 +22,16 @@ import org.apache.commons.csv.QuoteMode;
 
 /** Utility helpers for constructing CSV formats consistently. */
 public final class CsvFormats {
-    private CsvFormats() {}
+    private CsvFormats() {
+    }
 
     public static CSVFormat buildCsvPrintFormat(final ProcessorProperties properties) {
         final String delimiter = properties.getCsvDelimiter();
         final String quote = properties.getCsvQuote();
         final String escape = properties.getCsvEscape();
         final String nullToken = properties.getCsvNullToken();
-        return CSVFormat.POSTGRESQL_CSV.builder()
-                .setDelimiter(delimiter.charAt(0))
-                .setQuote(quote.charAt(0))
-                .setEscape(escape.charAt(0))
-                .setQuoteMode(QuoteMode.ALL_NON_NULL)
-                .setNullString(nullToken)
-                .build();
+        return CSVFormat.POSTGRESQL_CSV.builder().setDelimiter(delimiter.charAt(0)).setQuote(quote.charAt(0)).setEscape(escape.charAt(0))
+                .setQuoteMode(QuoteMode.ALL_NON_NULL).setNullString(nullToken).build();
     }
 
     public static CSVFormat buildCsvParseFormat(final ProcessorProperties properties) {
@@ -43,14 +39,7 @@ public final class CsvFormats {
         final String quote = properties.getCsvQuote();
         final String escape = properties.getCsvEscape();
         final String nullToken = properties.getCsvNullToken();
-        return CSVFormat.POSTGRESQL_CSV.builder()
-                .setDelimiter(delimiter.charAt(0))
-                .setQuote(quote.charAt(0))
-                .setEscape(escape.charAt(0))
-                .setNullString(nullToken)
-                .setSkipHeaderRecord(true)
-                .build();
+        return CSVFormat.POSTGRESQL_CSV.builder().setDelimiter(delimiter.charAt(0)).setQuote(quote.charAt(0)).setEscape(escape.charAt(0))
+                .setNullString(nullToken).setSkipHeaderRecord(true).build();
     }
 }
-
-

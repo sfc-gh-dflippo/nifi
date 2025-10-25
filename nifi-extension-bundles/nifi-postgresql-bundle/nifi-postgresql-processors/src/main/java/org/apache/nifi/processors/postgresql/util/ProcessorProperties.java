@@ -17,6 +17,14 @@
 
 package org.apache.nifi.processors.postgresql.util;
 
+import java.io.IOException;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.state.Scope;
 import org.apache.nifi.components.state.StateMap;
@@ -30,15 +38,9 @@ import org.apache.nifi.processors.postgresql.PostgreSQLConnectionProviderService
 import org.apache.nifi.serialization.RecordReaderFactory;
 import org.apache.nifi.serialization.RecordSetWriterFactory;
 
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-
 /**
- * Shared PropertyDescriptors and per-invocation evaluated values for PostgreSQL processors.
- * Encapsulates common COPY and query properties and provides evaluated getters.
+ * Shared PropertyDescriptors and per-invocation evaluated values for PostgreSQL processors. Encapsulates common COPY and query properties and
+ * provides evaluated getters.
  */
 public final class ProcessorProperties {
     // Instance-scoped evaluated properties and context
@@ -52,6 +54,8 @@ public final class ProcessorProperties {
     private final String targetTable;
     private final String upsertSqlTemplate;
     private final Boolean upsertReturnsRecords;
+    private final Boolean enableDeduplication;
+    private final String deduplicationTimestampColumn;
 
     private final String sourceTable;
     private final String customQuery;
@@ -76,9 +80,9 @@ public final class ProcessorProperties {
         this.context = context;
         this.session = session;
 
-        FlowFile candidate = session.get();
+        FlowFile candidate = session == null ? null : session.get();
         boolean created = false;
-        if (candidate == null) {
+        if (candidate == null && session != null) {
             candidate = session.create();
             created = true;
         }
@@ -91,6 +95,14 @@ public final class ProcessorProperties {
         this.upsertSqlTemplate = getPropertyValue(context, workingFlowFile, UPSERT_SQL_TEMPLATE);
         final String upsertReturnsRecordsStr = getPropertyValue(context, workingFlowFile, UPSERT_RETURNS_RECORDS);
         this.upsertReturnsRecords = upsertReturnsRecordsStr == null ? null : Boolean.valueOf(upsertReturnsRecordsStr);
+        final String enableDeduplicationStr = getPropertyValue(context, workingFlowFile, ENABLE_DEDUPLICATION);
+        this.enableDeduplication = enableDeduplicationStr == null ? null : Boolean.valueOf(enableDeduplicationStr);
+        // Only access DEDUPLICATION_TIMESTAMP_COLUMN if deduplication is enabled (property dependency requirement)
+        if (this.enableDeduplication != null && this.enableDeduplication.booleanValue()) {
+            this.deduplicationTimestampColumn = getPropertyValue(context, workingFlowFile, DEDUPLICATION_TIMESTAMP_COLUMN);
+        } else {
+            this.deduplicationTimestampColumn = null;
+        }
 
         this.sourceTable = getPropertyValue(context, workingFlowFile, SOURCE_TABLE);
         this.customQuery = getPropertyValue(context, workingFlowFile, CUSTOM_QUERY);
@@ -139,16 +151,22 @@ public final class ProcessorProperties {
         return value;
     }
 
-    public ProcessContext getContext() { return context; }
-    public FlowFile getWorkingFlowFile() { return workingFlowFile; }
-    public boolean isPlaceholder() { return placeholderCreated; }
+    public ProcessContext getContext() {
+        return context;
+    }
+    public FlowFile getWorkingFlowFile() {
+        return workingFlowFile;
+    }
+    public boolean isPlaceholder() {
+        return placeholderCreated;
+    }
     public void cleanup() {
         if (placeholderCreated && workingFlowFile != null) {
             try {
                 session.remove(workingFlowFile);
             } finally {
                 // Make idempotent
-                //noinspection AssignmentToNull
+                // noinspection AssignmentToNull
                 // (acceptable for lifecycle cleanup)
                 // Prevent double-removal on repeated cleanup calls
                 workingFlowFile = null;
@@ -157,67 +175,125 @@ public final class ProcessorProperties {
     }
 
     // Property getters
-    public String getBulkTransferDataFormat() { return bulkTransferDataFormat; }
-    public String getTargetTable() { return targetTable; }
-    public String getUpsertSqlTemplate() { return upsertSqlTemplate; }
+    public String getBulkTransferDataFormat() {
+        return bulkTransferDataFormat;
+    }
+    public String getTargetTable() {
+        return targetTable;
+    }
+    public String getUpsertSqlTemplate() {
+        return upsertSqlTemplate;
+    }
     public boolean getUpsertReturnsRecords() {
-        if (upsertReturnsRecords != null) return upsertReturnsRecords.booleanValue();
+        if (upsertReturnsRecords != null)
+            return upsertReturnsRecords.booleanValue();
         // Fallback to descriptor default when not set
         final String def = UPSERT_RETURNS_RECORDS.getDefaultValue();
         return def != null && Boolean.parseBoolean(def);
     }
+    
+    public boolean isDeduplicationEnabled() {
+        if (enableDeduplication != null)
+            return enableDeduplication.booleanValue();
+        final String def = ENABLE_DEDUPLICATION.getDefaultValue();
+        return def != null && Boolean.parseBoolean(def);
+    }
+    
+    public String getDeduplicationTimestampColumn() {
+        return deduplicationTimestampColumn;
+    }
 
-    public String getSourceTable() { return sourceTable; }
-    public String getCustomQuery() { return customQuery; }
-    public Integer getMaxRowsPerFlowFile() { return maxRowsPerFlowFile; }
+    public String getSourceTable() {
+        return sourceTable;
+    }
+    public String getCustomQuery() {
+        return customQuery;
+    }
+    public Integer getMaxRowsPerFlowFile() {
+        return maxRowsPerFlowFile;
+    }
 
-    public String getMaximumValueColumns() { return maximumValueColumns; }
+    public String getMaximumValueColumns() {
+        return maximumValueColumns;
+    }
     public List<String> getMaximumValueColumnsList() {
         final List<String> list = new ArrayList<>();
         if (maximumValueColumns != null && !maximumValueColumns.isBlank()) {
             for (String c : maximumValueColumns.split(",")) {
                 final String col = c.trim();
-                if (!col.isEmpty()) list.add(col);
+                if (!col.isEmpty())
+                    list.add(col);
             }
         }
         return list;
     }
 
-    public String getCsvTargetColumns() { return csvTargetColumns; }
-    public String getTargetColumns() { return targetColumns; }
-    public String getCsvDelimiter() { return csvDelimiter; }
-    public String getCsvQuote() { return csvQuote; }
-    public String getCsvEscape() { return csvEscape; }
-    public String getCsvNullToken() { return csvNullToken; }
+    public Map<String, String> getInitialMaxValuesFromDynamicProperties() {
+        final Map<String, String> initial = new HashMap<>();
+        for (Map.Entry<PropertyDescriptor, String> e : context.getProperties().entrySet()) {
+            final PropertyDescriptor d = e.getKey();
+            if (d.isDynamic()) {
+                final String name = d.getName();
+                if (name != null && name.startsWith("initial.maxvalue.")) {
+                    final String col = name.substring("initial.maxvalue.".length());
+                    if (!col.isEmpty())
+                        initial.put(col, e.getValue());
+                }
+            }
+        }
+        return initial;
+    }
 
-    public String getCsvHeader() { return csvHeader; }
+    public String getCsvTargetColumns() {
+        return csvTargetColumns;
+    }
+    public String getTargetColumns() {
+        return targetColumns;
+    }
+    public String getCsvDelimiter() {
+        return csvDelimiter;
+    }
+    public String getCsvQuote() {
+        return csvQuote;
+    }
+    public String getCsvEscape() {
+        return csvEscape;
+    }
+    public String getCsvNullToken() {
+        return csvNullToken;
+    }
 
-    public String getParquetMatchBy() { 
-        if (parquetMatchBy != null) return parquetMatchBy;
+    public String getCsvHeader() {
+        return csvHeader;
+    }
+
+    public String getParquetMatchBy() {
+        if (parquetMatchBy != null)
+            return parquetMatchBy;
         final String def = PARQUET_MATCH_BY.getDefaultValue();
         return def != null ? def : "position";
     }
-    public String getParquetVersion() { 
-        if (parquetVersion != null) return parquetVersion;
-        final String def = PARQUET_VERSION.getDefaultValue();
-        return def != null ? def : "v2";
+    public String getParquetVersion() {
+        // Return null if not set - this allows the server to use its default
+        return parquetVersion;
     }
-    
 
     public boolean isStreamIncomingFile() {
-        if (streamIncomingFile != null) return streamIncomingFile.booleanValue();
+        if (streamIncomingFile != null)
+            return streamIncomingFile.booleanValue();
         final String def = STREAM_INCOMING_FILE.getDefaultValue();
         return def != null && Boolean.parseBoolean(def);
     }
-
 
     public Map<String, String> getLastMaxValuesFromState() {
         try {
             final StateMap state = context.getStateManager().getState(Scope.CLUSTER);
             final Map<String, String> map = new HashMap<>();
+            final String tableKeyPrefix = getQualifiedStateKeyPrefix();
             for (Map.Entry<String, String> e : state.toMap().entrySet()) {
-                if (e.getKey().startsWith("maxvalue.")) {
-                    map.put(e.getKey().substring("maxvalue.".length()), e.getValue());
+                if (e.getKey().startsWith(tableKeyPrefix)) {
+                    final String col = e.getKey().substring(tableKeyPrefix.length());
+                    map.put(col, normalizeStateValue(e.getValue()));
                 }
             }
             return map;
@@ -226,228 +302,199 @@ public final class ProcessorProperties {
         }
     }
 
+    public String getQualifiedStateKey(final String column) {
+        return getQualifiedStateKeyPrefix() + column;
+    }
+
+    private String getQualifiedStateKeyPrefix() {
+        final String sourceTable = getSourceTable();
+        final String customQuery = getCustomQuery();
+        final String tableIdentity;
+        if (customQuery != null && !customQuery.isBlank()) {
+            tableIdentity = "query:" + Integer.toHexString(customQuery.hashCode());
+        } else if (sourceTable != null && !sourceTable.isBlank()) {
+            tableIdentity = sourceTable; // assume already schema-qualified or simple name
+        } else {
+            tableIdentity = "unknown";
+        }
+        return "maxvalue." + tableIdentity + ".";
+    }
+
+    private static String normalizeStateValue(final String value) {
+        if (value == null)
+            return null;
+        // If previous state stored epoch-like numeric for timestamps, convert to
+        // ISO-8601
+        if (value.matches("\\d+")) {
+            try {
+                final long v = Long.parseLong(value);
+                Instant instant;
+                if (value.length() >= 16) { // microseconds
+                    instant = Instant.ofEpochMilli(v / 1000L);
+                } else if (value.length() >= 13) { // milliseconds
+                    instant = Instant.ofEpochMilli(v);
+                } else if (value.length() <= 10) { // seconds
+                    instant = Instant.ofEpochSecond(v);
+                } else {
+                    instant = Instant.ofEpochMilli(v);
+                }
+                return DateTimeFormatter.ISO_INSTANT.format(instant);
+            } catch (NumberFormatException ignored) {
+                // NumberFormatException ignored
+            }
+        }
+        return value;
+    }
 
     // Common
-    public static final PropertyDescriptor CONNECTION_PROVIDER = new PropertyDescriptor.Builder()
-            .name("postgresql-connection-provider")
-            .displayName("PostgreSQL Connection Provider")
-            .description("Specifies the Controller Service providing PostgreSQL connections")
+    public static final PropertyDescriptor CONNECTION_PROVIDER = new PropertyDescriptor.Builder().name("postgresql-connection-provider")
+            .displayName("PostgreSQL Connection Provider").description("Specifies the Controller Service providing PostgreSQL connections")
             .identifiesControllerService(PostgreSQLConnectionProviderService.class)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(true)
-            .build();
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES).required(true).build();
 
-    public static final PropertyDescriptor BULK_TRANSFER_DATA_FORMAT = new PropertyDescriptor.Builder()
-            .name("data-format")
-            .displayName("Data Format")
-            .description("Select CSV (use Record Reader/Writer) or Parquet (stream bytes via pg_parquet)")
-            .allowableValues("CSV", "Parquet")
-            .defaultValue("Parquet")
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(true)
-            .build();
+    public static final PropertyDescriptor BULK_TRANSFER_DATA_FORMAT = new PropertyDescriptor.Builder().name("data-format").displayName("Data Format")
+            .description("Select CSV (use Record Reader/Writer) or Parquet (stream bytes via pg_parquet)").allowableValues("CSV", "Parquet")
+            .defaultValue("Parquet").expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES).required(true).build();
 
-    public static final PropertyDescriptor STREAM_INCOMING_FILE = new PropertyDescriptor.Builder()
-            .name("stream-incoming-file")
+    public static final PropertyDescriptor STREAM_INCOMING_FILE = new PropertyDescriptor.Builder().name("stream-incoming-file")
             .displayName("Stream Incoming File")
-            .description("When true, stream the incoming FlowFile bytes directly to PostgreSQL COPY as-is according to Data Format. When false and Data Format is Parquet, a Parquet RecordSetWriter will be required to transcode from the configured Record Reader.")
-            .allowableValues("true", "false")
-            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
-            .defaultValue("true")
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(true)
-            .build();
+            .description("When true, stream the incoming FlowFile bytes directly to PostgreSQL COPY as-is according to Data Format. "
+                    + "When false and Data Format is Parquet, a Parquet RecordSetWriter will be required to transcode from the configured Record Reader.")
+            .allowableValues("true", "false").addValidator(StandardValidators.BOOLEAN_VALIDATOR).defaultValue("true")
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES).required(true).build();
 
     // Load
 
-    public static final PropertyDescriptor TARGET_COLUMNS = new PropertyDescriptor.Builder()
-            .name("target-columns")
-            .displayName("Target Columns")
-            .description("Optional comma-separated list of target table columns to load. When set, the COPY statement will specify this ordered column list and records will be reordered accordingly. Missing fields will be written as NULL.")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(false)
-            .dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV")
-            .build();
+    public static final PropertyDescriptor TARGET_COLUMNS = new PropertyDescriptor.Builder().name("target-columns").displayName("Target Columns")
+            .description("Optional comma-separated list of target table columns to load. "
+                    + "When set, the COPY statement will specify this ordered column list and records will be reordered accordingly. "
+                    + "Missing fields will be written as NULL.")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR).expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .required(false).dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV").build();
 
     // Upsert
-    public static final PropertyDescriptor TARGET_TABLE = new PropertyDescriptor.Builder()
-        .name("target-table")
-        .displayName("Target Table")
-        .description("The fully-qualified name of the target table for upsert (optionally schema-qualified)")
-        .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-        .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-        .required(true)
-        .build();
-    public static final PropertyDescriptor UPSERT_SQL_TEMPLATE = new PropertyDescriptor.Builder()
-            .name("upsert-sql-template")
+    public static final PropertyDescriptor TARGET_TABLE = new PropertyDescriptor.Builder().name("target-table").displayName("Target Table")
+            .description("The fully-qualified name of the target table for upsert (optionally schema-qualified)")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR).expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .required(true).build();
+    public static final PropertyDescriptor UPSERT_SQL_TEMPLATE = new PropertyDescriptor.Builder().name("upsert-sql-template")
             .displayName("Upsert SQL Template")
-            .description("Template SQL for upsert using placeholders ${temp_table} and ${target_table}. Example: \nINSERT INTO ${target_table} \nSELECT * FROM ${temp_table} \nON CONFLICT (tenant_id, key) DO UPDATE SET details = tgt.details || EXCLUDED.details, last_operation = EXCLUDED.last_operation, load_dt = EXCLUDED.load_dt \nRETURNING *")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .description("Template SQL for upsert using placeholders ${temp_table} and ${target_table}. Example: \n"
+                    + "INSERT INTO ${target_table} \n" + "SELECT * FROM ${temp_table} \n"
+                    + "ON CONFLICT (tenant_id, key) DO UPDATE SET details = tgt.details || EXCLUDED.details, "
+                    + "last_operation = EXCLUDED.last_operation, load_dt = EXCLUDED.load_dt \n" + "RETURNING *")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR).expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .required(true)
-            .defaultValue("INSERT INTO ${target_table} \nSELECT * FROM ${temp_table} \nON CONFLICT (tenant_id, key) DO UPDATE SET details = tgt.details || EXCLUDED.details, last_operation = EXCLUDED.last_operation, load_dt = EXCLUDED.load_dt \nRETURNING *")
+            .defaultValue("INSERT INTO ${target_table} \n" + "SELECT * FROM ${temp_table} \n"
+                    + "ON CONFLICT (tenant_id, key) DO UPDATE SET details = tgt.details || EXCLUDED.details, "
+                    + "last_operation = EXCLUDED.last_operation, load_dt = EXCLUDED.load_dt \n" + "RETURNING *")
             .build();
 
-            public static final PropertyDescriptor UPSERT_RETURNS_RECORDS = new PropertyDescriptor.Builder()
-            .name("upsert-returns-records")
+    public static final PropertyDescriptor UPSERT_RETURNS_RECORDS = new PropertyDescriptor.Builder().name("upsert-returns-records")
             .displayName("Upsert Returns Records")
             .description("Whether the upsert should return records. If true, these rows will be written to the output FlowFile.")
-            .allowableValues("true", "false")
-            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(true)
-            .defaultValue("true")
-            .build();
-    // Export 
-    public static final PropertyDescriptor SOURCE_TABLE = new PropertyDescriptor.Builder()
-            .name("source-table")
-            .displayName("Source Table")
+            .allowableValues("true", "false").addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES).required(true).defaultValue("true").build();
+    
+    public static final PropertyDescriptor ENABLE_DEDUPLICATION = new PropertyDescriptor.Builder().name("enable-deduplication")
+            .displayName("Enable Deduplication")
+            .description("When enabled, deduplicates records in the temporary table before upserting by grouping on primary key columns and using "
+                    + "the Deduplication Timestamp Column for ordering. For scalar fields, picks the most recent value. For JSONB/JSON columns, "
+                    + "merges all versions chronologically using PostgreSQL's concatenation operator (||) via a custom jsonb_merge_agg() aggregate function "
+                    + "that will be created automatically if needed.")
+            .allowableValues("true", "false").addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES).required(false).defaultValue("false").build();
+    
+    public static final PropertyDescriptor DEDUPLICATION_TIMESTAMP_COLUMN = new PropertyDescriptor.Builder().name("deduplication-timestamp-column")
+            .displayName("Deduplication Timestamp Column")
+            .description("Column name to use for ordering records during deduplication. This column should contain a timestamp or other sortable value "
+                    + "that indicates the chronological order of records. Required when Enable Deduplication is true.")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES).required(false)
+            .dependsOn(ENABLE_DEDUPLICATION, "true").build();
+    
+    // Export
+    public static final PropertyDescriptor SOURCE_TABLE = new PropertyDescriptor.Builder().name("source-table").displayName("Source Table")
             .description("The schema-qualified table name to export when Custom Query is not specified.")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(false)
-            .build();
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR).expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .required(false).build();
 
-    public static final PropertyDescriptor CUSTOM_QUERY = new PropertyDescriptor.Builder()
-            .name("custom-query")
-            .displayName("Custom Query")
-            .description("Optional SQL to export using COPY (query) TO STDOUT. When set, Table Name is ignored. Incremental predicates and ordering will be applied by wrapping this query.")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(false)
-            .build();
+    public static final PropertyDescriptor CUSTOM_QUERY = new PropertyDescriptor.Builder().name("custom-query").displayName("Custom Query")
+            .description(
+                    "Optional SQL to export using COPY (query) TO STDOUT. When set, Table Name is ignored. Incremental predicates and ordering will be applied by wrapping this query.")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR).expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .required(false).build();
 
-    public static final PropertyDescriptor MAX_ROWS_PER_FLOW_FILE = new PropertyDescriptor.Builder()
-            .name("max-rows-per-flow-file")
-            .displayName("Max Rows Per Flow File")
-            .description("The maximum number of rows to include in each FlowFile. Set 0 for no limit.")
-            .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .defaultValue("0")
-            .required(true)
-            .build();
-    public static final PropertyDescriptor MAXIMUM_VALUE_COLUMNS = new PropertyDescriptor.Builder()
-            .name("maximum-value-columns")
+    public static final PropertyDescriptor MAX_ROWS_PER_FLOW_FILE = new PropertyDescriptor.Builder().name("max-rows-per-flow-file")
+            .displayName("Max Rows Per Flow File").description("The maximum number of rows to include in each FlowFile. Set 0 for no limit.")
+            .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR).expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .defaultValue("0").required(true).build();
+    public static final PropertyDescriptor MAXIMUM_VALUE_COLUMNS = new PropertyDescriptor.Builder().name("maximum-value-columns")
             .displayName("Maximum-value Columns")
             .description("A comma-separated list of column names to use for maintaining state for incremental fetching. Supports multiple columns.")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(false)
-            .build();
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR).expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .required(false).build();
 
     // Record Reader / Writer
-    public static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
-            .name("record-reader")
+    public static final PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder().name("record-reader")
             .displayName("FlowFile Record Reader")
-            .description("Record Reader for parsing incoming FlowFiles (e.g., JSON, Avro, CSV, Parquet). When Data Format is Parquet and the Reader is Parquet, the processor will bypass reading and stream the Parquet content.")
-            .identifiesControllerService(RecordReaderFactory.class)
-            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
-            .required(true)
-            .dependsOn(STREAM_INCOMING_FILE, "false")
-            .build();
+            .description("Record Reader for parsing incoming FlowFiles (e.g., JSON, Avro, CSV, Parquet). "
+                    + "When Data Format is Parquet and the Reader is Parquet, the processor will bypass reading and stream the Parquet content.")
+            .identifiesControllerService(RecordReaderFactory.class).expressionLanguageSupported(ExpressionLanguageScope.NONE).required(true)
+            .dependsOn(STREAM_INCOMING_FILE, "false").build();
 
-    public static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
-            .name("record-writer")
+    public static final PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder().name("record-writer")
             .displayName("FlowFile Record Writer")
-            .description("Record Writer for serializing outgoing FlowFile records (e.g., JSON, Avro, CSV, Parquet). When Data Format is Parquet and the Writer is Parquet, the processor will bypass writing and stream Parquet bytes directly.")
-            .identifiesControllerService(RecordSetWriterFactory.class)
-            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
-            .required(false)
+            .description("Record Writer for serializing outgoing FlowFile records (e.g., JSON, Avro, CSV, Parquet). "
+                    + "When Data Format is Parquet and the Writer is Parquet, the processor will bypass writing and stream Parquet bytes directly.")
+            .identifiesControllerService(RecordSetWriterFactory.class).expressionLanguageSupported(ExpressionLanguageScope.NONE).required(false)
             .build();
 
+    public static final PropertyDescriptor CSV_TARGET_COLUMNS = new PropertyDescriptor.Builder().name("target-columns").displayName("Target Columns")
+            .description("Optional comma-separated list of target table columns to load. "
+                    + "When set, the COPY statement will specify this ordered column list and records will be reordered accordingly. "
+                    + "Missing fields will be written as NULL.")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR).expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .required(false).dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV").build();
 
-    public static final PropertyDescriptor CSV_TARGET_COLUMNS = new PropertyDescriptor.Builder()
-            .name("target-columns")
-            .displayName("Target Columns")
-            .description("Optional comma-separated list of target table columns to load. When set, the COPY statement will specify this ordered column list and records will be reordered accordingly. Missing fields will be written as NULL.")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(false)
-            .dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV")
+    public static final PropertyDescriptor CSV_DELIMITER = new PropertyDescriptor.Builder().name("csv-delimiter").displayName("CSV Delimiter")
+            .description("CSV delimiter for COPY").defaultValue(",").addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES).required(true).dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV")
             .build();
 
-    public static final PropertyDescriptor CSV_DELIMITER = new PropertyDescriptor.Builder()
-            .name("csv-delimiter")
-            .displayName("CSV Delimiter")
-            .description("CSV delimiter for COPY")
-            .defaultValue(",")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(true)
-            .dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV")
+    public static final PropertyDescriptor CSV_QUOTE = new PropertyDescriptor.Builder().name("csv-quote").displayName("CSV Quote Character")
+            .description("CSV quote character for COPY").defaultValue("\"").addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES).required(true).dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV")
             .build();
 
-    public static final PropertyDescriptor CSV_QUOTE = new PropertyDescriptor.Builder()
-            .name("csv-quote")
-            .displayName("CSV Quote Character")
-            .description("CSV quote character for COPY")
-            .defaultValue("\"")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(true)
-            .dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV")
+    public static final PropertyDescriptor CSV_ESCAPE = new PropertyDescriptor.Builder().name("csv-escape").displayName("CSV Escape Character")
+            .description("CSV escape character for COPY").defaultValue("\"").addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES).required(true).dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV")
             .build();
 
-    public static final PropertyDescriptor CSV_ESCAPE = new PropertyDescriptor.Builder()
-            .name("csv-escape")
-            .displayName("CSV Escape Character")
-            .description("CSV escape character for COPY")
-            .defaultValue("\"")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(true)
-            .dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV")
-            .build();
+    public static final PropertyDescriptor CSV_NULL = new PropertyDescriptor.Builder().name("csv-null").displayName("CSV NULL Token")
+            .description("String token representing NULL values in CSV for COPY").defaultValue("\\N")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR).expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .required(true).dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV").build();
 
-    public static final PropertyDescriptor CSV_NULL = new PropertyDescriptor.Builder()
-            .name("csv-null")
-            .displayName("CSV NULL Token")
-            .description("String token representing NULL values in CSV for COPY")
-            .defaultValue("\\N")
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(true)
-            .dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV")
-            .build();
-
-    public static final PropertyDescriptor CSV_HEADER = new PropertyDescriptor.Builder()
-            .name("csv-header")
-            .displayName("CSV Header")
-            .description("Specifies that the CSV file contains a header line with column names. " +
-                    "When true, the first line is discarded during COPY FROM operations. " +
-                    "When false, all lines are treated as data.")
-            .allowableValues("true", "false")
-            .defaultValue("false")
-            .addValidator(StandardValidators.BOOLEAN_VALIDATOR)
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(false)
-            .dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV")
+    public static final PropertyDescriptor CSV_HEADER = new PropertyDescriptor.Builder().name("csv-header").displayName("CSV Header")
+            .description("Specifies that the CSV file contains a header line with column names. "
+                    + "When true, the first line is discarded during COPY FROM operations. " + "When false, all lines are treated as data.")
+            .allowableValues("true", "false").defaultValue("false").addValidator(StandardValidators.BOOLEAN_VALIDATOR)
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES).required(false).dependsOn(BULK_TRANSFER_DATA_FORMAT, "CSV")
             .build();
 
     // Parquet
-    public static final PropertyDescriptor PARQUET_MATCH_BY = new PropertyDescriptor.Builder()
-            .name("parquet-match-by")
-            .displayName("Parquet Match By")
-            .description("Method to match Parquet fields to table columns when reading: position or name")
-            .allowableValues("position", "name")
-            .defaultValue("position")
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(true)
-            .dependsOn(BULK_TRANSFER_DATA_FORMAT, "Parquet")
-            .build();
+    public static final PropertyDescriptor PARQUET_MATCH_BY = new PropertyDescriptor.Builder().name("parquet-match-by")
+            .displayName("Parquet Match By").description("Method to match Parquet fields to table columns when reading: position or name")
+            .allowableValues("position", "name").defaultValue("position").expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .required(true).dependsOn(BULK_TRANSFER_DATA_FORMAT, "Parquet").build();
 
-    public static final PropertyDescriptor PARQUET_VERSION = new PropertyDescriptor.Builder()
-            .name("parquet-version")
+    public static final PropertyDescriptor PARQUET_VERSION = new PropertyDescriptor.Builder().name("parquet-version")
             .displayName("Parquet Writer Version")
-            .description("Writer version: v1 or v2. You will need to use a vectorized reader to read v2 files.")
-            .allowableValues("v1", "v2")
-            .defaultValue("v2")
-            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
-            .required(true)
-            .dependsOn(BULK_TRANSFER_DATA_FORMAT, "Parquet")
-            .build();
+            .description("Writer version: v1 or v2. Leave empty to use the PostgreSQL server default. "
+                    + "Note: Not all PostgreSQL pg_parquet versions support this option. Only set if your server supports it.")
+            .allowableValues("v1", "v2").expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES).required(false)
+            .dependsOn(BULK_TRANSFER_DATA_FORMAT, "Parquet").build();
 
 }
-
-

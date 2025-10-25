@@ -15,19 +15,15 @@
  * limitations under the License.
  */
 
-package org.apache.nifi.processors.postgresql;
+package org.apache.nifi.processors.postgresql.util;
 
-import org.apache.nifi.controller.ControllerService;
+import java.nio.file.Path;
 
-/**
- * Controller Service API that provides access to PostgreSQL connections wrapped in {@link PostgreSQLConnectionWrapper} for NiFi components.
- */
-public interface PostgreSQLConnectionProviderService extends ControllerService {
-
-    /**
-     * Gets a PostgreSQL connection wrapped in a {@link PostgreSQLConnectionWrapper}.
-     *
-     * @return a PostgreSQLConnectionWrapper instance
-     */
-    PostgreSQLConnectionWrapper getPostgreSQLConnection();
+public final class ChunkResult {
+    public final Path path;
+    public final int rowCount;
+    public ChunkResult(final Path path, final int rowCount) {
+        this.path = path;
+        this.rowCount = rowCount;
+    }
 }

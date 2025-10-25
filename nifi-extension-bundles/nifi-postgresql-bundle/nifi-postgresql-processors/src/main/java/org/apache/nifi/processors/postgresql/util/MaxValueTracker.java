@@ -17,27 +17,36 @@
 
 package org.apache.nifi.processors.postgresql.util;
 
-import org.apache.nifi.serialization.record.Record;
-import org.apache.nifi.serialization.record.RecordSchema;
-
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.nifi.serialization.record.Record;
+
 /**
- * Tracks maximum values for a configured set of columns while iterating records.
- * Values are compared using natural Comparable ordering. Nulls are ignored.
+ * Tracks maximum values for a configured set of columns while iterating records. Values are compared using natural Comparable ordering. Nulls are
+ * ignored.
  */
 public final class MaxValueTracker {
     private final List<String> columns;
     private final Map<String, Object> currentMax = new HashMap<>();
 
     public MaxValueTracker(final List<String> columns) {
-        this.columns = columns == null ? java.util.Collections.emptyList() : columns;
+        this.columns = columns == null ? Collections.emptyList() : columns;
     }
 
     public void observe(final Record record) {
-        if (record == null || columns.isEmpty()) return;
+        if (record == null || columns.isEmpty())
+            return;
         for (String col : columns) {
             final Object value = record.getValue(col);
             updateMax(col, value);
@@ -45,7 +54,8 @@ public final class MaxValueTracker {
     }
 
     public void observe(final Map<String, Object> valuesByColumn) {
-        if (valuesByColumn == null || columns.isEmpty()) return;
+        if (valuesByColumn == null || columns.isEmpty())
+            return;
         for (String col : columns) {
             updateMax(col, valuesByColumn.get(col));
         }
@@ -53,7 +63,8 @@ public final class MaxValueTracker {
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private void updateMax(final String column, final Object value) {
-        if (value == null) return;
+        if (value == null)
+            return;
         final Object prior = currentMax.get(column);
         if (prior == null) {
             currentMax.put(column, value);
@@ -83,12 +94,41 @@ public final class MaxValueTracker {
     public Map<String, String> getMaxValuesAsStrings() {
         final Map<String, String> out = new HashMap<>();
         for (Map.Entry<String, Object> e : currentMax.entrySet()) {
-            if (e.getValue() != null) out.put(e.getKey(), e.getValue().toString());
+            if (e.getValue() != null)
+                out.put(e.getKey(), formatValueForState(e.getValue()));
         }
         return out;
     }
 
-    public void reset() { currentMax.clear(); }
+    public void reset() {
+        currentMax.clear();
+    }
+
+    private static String formatValueForState(final Object value) {
+        // If value is already a temporal type, format to ISO 8601 (UTC)
+        if (value instanceof Timestamp ts) {
+            final Instant instant = ts.toInstant();
+            return DateTimeFormatter.ISO_INSTANT.format(instant);
+        }
+        if (value instanceof Date date) {
+            final Instant instant = date.toInstant();
+            return DateTimeFormatter.ISO_INSTANT.format(instant);
+        }
+        if (value instanceof OffsetDateTime odt) {
+            return odt.withOffsetSameInstant(ZoneOffset.UTC).format(DateTimeFormatter.ISO_INSTANT);
+        }
+        if (value instanceof ZonedDateTime zdt) {
+            return zdt.withZoneSameInstant(ZoneOffset.UTC).format(DateTimeFormatter.ISO_INSTANT);
+        }
+        if (value instanceof LocalDateTime ldt) {
+            final Instant instant = ldt.toInstant(ZoneOffset.UTC);
+            return DateTimeFormatter.ISO_INSTANT.format(instant);
+        }
+        if (value instanceof Instant inst) {
+            return DateTimeFormatter.ISO_INSTANT.format(inst);
+        }
+
+        // Default: use toString() representation (numbers remain numeric text)
+        return value.toString();
+    }
 }
-
-

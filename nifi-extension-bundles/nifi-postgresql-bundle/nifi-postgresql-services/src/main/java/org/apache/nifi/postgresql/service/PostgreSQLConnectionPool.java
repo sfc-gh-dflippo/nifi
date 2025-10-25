@@ -41,6 +41,8 @@ import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.postgresql.PostgreSQLConnectionProviderService;
 import org.apache.nifi.processors.postgresql.PostgreSQLConnectionWrapper;
 import org.apache.nifi.processors.postgresql.util.ConnectionSettings;
+import org.apache.nifi.postgresql.service.util.TableMetadata;
+import org.apache.nifi.postgresql.service.util.TableMetadataCache;
  
 import org.apache.nifi.postgresql.service.util.ConnectionUrlFormat;
 import org.apache.nifi.postgresql.service.util.ConnectionPoolSettings;
@@ -48,11 +50,13 @@ import org.apache.nifi.postgresql.service.util.ConnectionPoolSettings;
 import java.sql.Connection;
 //import java.sql.Driver;
 import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 import static org.apache.nifi.components.ConfigVerificationResult.Outcome.FAILED;
 import static org.apache.nifi.components.ConfigVerificationResult.Outcome.SUCCESSFUL;
@@ -102,6 +106,16 @@ public class PostgreSQLConnectionPool extends AbstractDBCPConnectionPool impleme
     public static final PropertyDescriptor POSTGRESQL_USER = ConnectionPoolSettings.POSTGRESQL_USER;
 
     public static final PropertyDescriptor POSTGRESQL_PASSWORD = ConnectionPoolSettings.POSTGRESQL_PASSWORD;
+
+    public static final PropertyDescriptor METADATA_CACHE_TTL = new PropertyDescriptor.Builder()
+            .name("metadata-cache-ttl")
+            .displayName("Metadata Cache TTL")
+            .description("Time-to-live for cached table metadata in minutes. Set to 0 to disable expiration (cache indefinitely). "
+                    + "Cached metadata includes table columns, types, and primary keys. Cache is shared across all instances of this service.")
+            .required(false)
+            .defaultValue("0")
+            .addValidator(StandardValidators.NON_NEGATIVE_INTEGER_VALIDATOR)
+            .build();
 
     private static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
             CONNECTION_URL_FORMAT,
@@ -156,8 +170,20 @@ public class PostgreSQLConnectionPool extends AbstractDBCPConnectionPool impleme
             MAX_CONN_LIFETIME,
             EVICTION_RUN_PERIOD,
             MIN_EVICTABLE_IDLE_TIME,
-            SOFT_MIN_EVICTABLE_IDLE_TIME
+            SOFT_MIN_EVICTABLE_IDLE_TIME,
+            METADATA_CACHE_TTL
     );
+
+    private volatile long metadataCacheTtlMs = 0; // 0 = no expiration
+
+    @Override
+    public void onPropertyModified(final PropertyDescriptor descriptor, final String oldValue, final String newValue) {
+        if (METADATA_CACHE_TTL.equals(descriptor)) {
+            // Convert minutes to milliseconds
+            final int ttlMinutes = newValue == null ? 0 : Integer.parseInt(newValue);
+            metadataCacheTtlMs = ttlMinutes * 60 * 1000L;
+        }
+    }
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
@@ -342,7 +368,8 @@ public class PostgreSQLConnectionPool extends AbstractDBCPConnectionPool impleme
 
     /**
      * Override verify to provide enhanced error messages with root cause extraction for PostgreSQL connections.
-     * This provides more detailed diagnostic information when connection attempts fail.
+     * When connection fails, this method attempts a direct connection using the PostgreSQL JDBC driver
+     * to retrieve the actual error message from PostgreSQL.
      */
     @Override
     public List<ConfigVerificationResult> verify(final ConfigurationContext context, final ComponentLog verificationLogger, final Map<String, String> variables) {
@@ -355,9 +382,8 @@ public class PostgreSQLConnectionPool extends AbstractDBCPConnectionPool impleme
             // Enhance any failure results with better PostgreSQL-specific diagnostics
             for (ConfigVerificationResult result : parentResults) {
                 if (result.getOutcome() == FAILED && result.getVerificationStepName().equals("Establish Connection")) {
-                    // Extract and enhance the error message with root cause and PostgreSQL-specific guidance
-                    final String originalExplanation = result.getExplanation();
-                    final String enhancedExplanation = enhanceConnectionErrorMessage(originalExplanation, context);
+                    // Get the actual PostgreSQL error by attempting a direct connection
+                    final String enhancedExplanation = getDirectConnectionError(context, verificationLogger);
                     
                     results.add(new ConfigVerificationResult.Builder()
                             .verificationStepName(result.getVerificationStepName())
@@ -385,55 +411,77 @@ public class PostgreSQLConnectionPool extends AbstractDBCPConnectionPool impleme
     }
 
     /**
-     * Enhance connection error messages with root cause and PostgreSQL-specific troubleshooting guidance.
+     * Attempt a direct connection using PostgreSQL JDBC driver to get the actual error message.
+     * This bypasses DBCP connection pooling to retrieve the raw PostgreSQL error.
      */
-    private String enhanceConnectionErrorMessage(final String originalMessage, final ConfigurationContext context) {
+    private String getDirectConnectionError(final ConfigurationContext context, final ComponentLog logger) {
         final StringBuilder enhanced = new StringBuilder();
-        
-        // Start with the original message but try to extract more details
         enhanced.append("Failed to establish PostgreSQL connection.\n\n");
         
-        // Extract the JDBC URL being used (mask password if present)
-        try {
-            final String jdbcUrl = getUrl(context);
-            final String maskedUrl = jdbcUrl.replaceAll("([&?]password=)[^&]*", "$1***");
-            enhanced.append("Connection URL: ").append(maskedUrl).append("\n");
-        } catch (Exception e) {
-            enhanced.append("Connection URL: Unable to determine\n");
-        }
+        // Get connection parameters
+        final String jdbcUrl = getUrl(context);
+        final String user = context.getProperty(DB_USER).evaluateAttributeExpressions().getValue();
+        final String password = context.getProperty(DB_PASSWORD).evaluateAttributeExpressions().getValue();
         
-        // Extract connection details for better diagnostics
+        // Display connection details (with masked password)
+        final String maskedUrl = jdbcUrl.replaceAll("([&?]password=)[^&]*", "$1***");
+        enhanced.append("Connection URL: ").append(maskedUrl).append("\n");
+        
         try {
             final String host = context.getProperty(POSTGRESQL_HOST_NAME).evaluateAttributeExpressions().getValue();
             final String port = context.getProperty(POSTGRESQL_PORT).evaluateAttributeExpressions().getValue();
             final String database = context.getProperty(POSTGRESQL_DATABASE).evaluateAttributeExpressions().getValue();
             
-            if (host != null) {
-                enhanced.append("Host: ").append(host).append("\n");
-            }
-            if (port != null) {
-                enhanced.append("Port: ").append(port).append("\n");
-            }
-            if (database != null) {
-                enhanced.append("Database: ").append(database).append("\n");
-            }
+            if (host != null) enhanced.append("Host: ").append(host).append("\n");
+            if (port != null) enhanced.append("Port: ").append(port).append("\n");
+            if (database != null) enhanced.append("Database: ").append(database).append("\n");
         } catch (Exception e) {
             // Continue even if we can't extract connection details
         }
         
-        // Extract and display the root cause
-        enhanced.append("\nRoot Cause: ");
-        if (originalMessage != null && originalMessage.contains("The connection attempt failed")) {
-            // Try to extract more specific error from the original message
-            enhanced.append(extractRootCauseFromMessage(originalMessage));
-        } else if (originalMessage != null) {
-            enhanced.append(originalMessage);
-        } else {
-            enhanced.append("Unknown error");
+        // Attempt direct connection to get actual PostgreSQL error
+        enhanced.append("\nActual PostgreSQL Error:\n");
+        Connection testConnection = null;
+        try {
+            // Load PostgreSQL driver
+            Class.forName(Driver.class.getName());
+            
+            // Get connection properties
+            final Map<String, String> connectionProperties = getConnectionProperties(context);
+            final Properties props = new Properties();
+            if (user != null) props.setProperty("user", user);
+            if (password != null) props.setProperty("password", password);
+            
+            // Add all other connection properties
+            for (Map.Entry<String, String> entry : connectionProperties.entrySet()) {
+                if (entry.getValue() != null && !entry.getKey().equals("user") && !entry.getKey().equals("password")) {
+                    props.setProperty(entry.getKey(), entry.getValue());
+                }
+            }
+            
+            // Attempt direct connection - this will throw the actual PostgreSQL exception
+            testConnection = DriverManager.getConnection(jdbcUrl, props);
+            
+            // If we got here, connection actually succeeded (shouldn't happen in this path)
+            enhanced.append("Connection succeeded unexpectedly during direct test.\n");
+            
+        } catch (final Exception e) {
+            // This is what we want - the actual PostgreSQL error
+            final String actualError = extractPostgreSQLError(e);
+            enhanced.append(actualError).append("\n");
+            
+        } finally {
+            if (testConnection != null) {
+                try {
+                    testConnection.close();
+                } catch (Exception e) {
+                    logger.debug("Error closing test connection", e);
+                }
+            }
         }
         
-        // Add troubleshooting guidance based on common issues
-        enhanced.append("\n\nTroubleshooting Tips:\n");
+        // Add troubleshooting guidance
+        enhanced.append("\nTroubleshooting Tips:\n");
         enhanced.append("1. Verify PostgreSQL is running and accessible at the specified host and port\n");
         enhanced.append("2. Check that the database exists and the user has access permissions\n");
         enhanced.append("3. If you are using Snowflake, verify your Snowflake network rules and external access integration is configured to allow connections to PostgreSQL\n");
@@ -443,6 +491,122 @@ public class PostgreSQLConnectionPool extends AbstractDBCPConnectionPool impleme
         
         return enhanced.toString();
     }
+
+    /**
+     * Extract the most useful error message from a PostgreSQL connection exception.
+     * Traverses the exception chain to find the most specific PostgreSQL error,
+     * including IOException details, SQL state, and suppressed exceptions.
+     */
+    private String extractPostgreSQLError(final Throwable throwable) {
+        if (throwable == null) {
+            return "Unknown connection error";
+        }
+        
+        final StringBuilder errorDetails = new StringBuilder();
+        
+        // Traverse the exception chain to find the most informative message
+        Throwable current = throwable;
+        String sqlState = null;
+        Integer errorCode = null;
+        String detailedMessage = null;
+        String ioExceptionMessage = null;
+        
+        while (current != null) {
+            final String message = current.getMessage();
+            final String exceptionType = current.getClass().getSimpleName();
+            final String fullClassName = current.getClass().getName();
+            
+            // Extract SQL state and error code from SQLException
+            if (current instanceof SQLException) {
+                final SQLException sqlEx = (SQLException) current;
+                if (sqlState == null) {
+                    sqlState = sqlEx.getSQLState();
+                }
+                if (errorCode == null) {
+                    errorCode = sqlEx.getErrorCode();
+                }
+            }
+            
+            // IO exceptions usually have the real network error details
+            if (fullClassName.contains("IOException") || fullClassName.contains("SocketException") || 
+                fullClassName.contains("UnknownHostException") || fullClassName.contains("ConnectException")) {
+                if (message != null && !message.trim().isEmpty() && !message.equals("Connection refused")) {
+                    ioExceptionMessage = exceptionType + ": " + message;
+                } else if (message != null) {
+                    ioExceptionMessage = exceptionType;
+                }
+            }
+            
+            // Look for specific error patterns that are more informative than generic messages
+            if (message != null && !message.contains("The connection attempt failed")) {
+                if (message.contains("Connection refused") ||
+                    message.contains("authentication failed") ||
+                    message.contains("password authentication failed") ||
+                    message.contains("no pg_hba.conf entry") ||
+                    message.contains("database") && message.contains("does not exist") ||
+                    message.contains("timeout") ||
+                    message.contains("timed out") ||
+                    message.contains("Unknown host") ||
+                    message.contains("UnknownHostException") ||
+                    message.contains("No route to host") ||
+                    message.contains("SSL") ||
+                    message.contains("FATAL") ||
+                    message.contains("Connection reset") ||
+                    message.contains("Connection closed")) {
+                    detailedMessage = message;
+                    break; // Found a specific error, use it
+                }
+            }
+            
+            // Check suppressed exceptions
+            if (current.getSuppressed() != null && current.getSuppressed().length > 0) {
+                for (Throwable suppressed : current.getSuppressed()) {
+                    String suppressedMsg = suppressed.getMessage();
+                    if (suppressedMsg != null && !suppressedMsg.contains("The connection attempt failed")) {
+                        detailedMessage = suppressedMsg;
+                        break;
+                    }
+                }
+            }
+            
+            current = current.getCause();
+        }
+        
+        // Build the error message with all available details
+        if (detailedMessage != null) {
+            errorDetails.append(detailedMessage);
+        } else if (ioExceptionMessage != null) {
+            errorDetails.append(ioExceptionMessage);
+        } else {
+            // Last resort - use the original message
+            errorDetails.append(throwable.getMessage() != null ? throwable.getMessage() : throwable.getClass().getSimpleName());
+        }
+        
+        // Add SQL state if available
+        if (sqlState != null) {
+            errorDetails.append(" (SQL State: ").append(sqlState).append(")");
+        }
+        
+        // Add error code if available and meaningful
+        if (errorCode != null && errorCode != 0) {
+            errorDetails.append(" (Error Code: ").append(errorCode).append(")");
+        }
+        
+        // Add exception type context if the message is very generic
+        String result = errorDetails.toString();
+        if (result.equals("The connection attempt failed") || result.trim().isEmpty()) {
+            // Try to get the deepest exception type for context
+            Throwable deepest = throwable;
+            while (deepest.getCause() != null) {
+                deepest = deepest.getCause();
+            }
+            result = "Connection failed - " + deepest.getClass().getSimpleName() + 
+                     (deepest.getMessage() != null ? ": " + deepest.getMessage() : "");
+        }
+        
+        return result;
+    }
+
 
     /**
      * Extract the root cause message from an exception, traversing the entire cause chain.
@@ -501,46 +665,83 @@ public class PostgreSQLConnectionPool extends AbstractDBCPConnectionPool impleme
         return result.toString();
     }
 
+    // ========== Metadata Cache Implementation ==========
+
+    public TableMetadata getTableMetadata(final String schema, final String table) {
+        return getTableMetadata(schema, table, false);
+    }
+
+    public TableMetadata getTableMetadata(final String schema, final String table, final boolean forceRefresh) {
+        final TableMetadataCache cache = TableMetadataCache.getInstance();
+
+        // Try to get from cache first if not forcing refresh
+        if (!forceRefresh) {
+            final TableMetadata cached = cache.get(getCurrentDatabase(), schema, table, metadataCacheTtlMs);
+            if (cached != null) {
+                return cached;
+            }
+        }
+
+        // Fetch fresh metadata
+        try (final PostgreSQLConnectionWrapper wrapper = getPostgreSQLConnection()) {
+            final Connection conn = wrapper.getConnection();
+            final String dbName = getCurrentDatabase();
+            final TableMetadata metadata = TableMetadata.fetch(conn, schema, table);
+            cache.put(dbName, schema, table, metadata);
+            return metadata;
+        } catch (Exception e) {
+            throw new ProcessException("Failed to fetch table metadata for " + schema + "." + table, e);
+        }
+    }
+
     /**
-     * Extract root cause details from the error message string when we don't have the exception object.
-     * This parses the message from DBCP which often contains nested exception information.
+     * Retrieves cached table metadata, fetching from the database if not already cached or if forceRefresh is true.
+     *
+     * @param schema the schema name
+     * @param table  the table name
+     * @return the table metadata
      */
-    private String extractRootCauseFromMessage(final String message) {
-        if (message == null || message.trim().isEmpty()) {
-            return "Connection attempt failed with no additional details";
+    public TableMetadata getTableMetadataWithColumnValidation(final String schema, final String table, final List<String> incomingColumns) {
+        // Get cached metadata (or fetch if not cached)
+        TableMetadata metadata = getTableMetadata(schema, table, false);
+
+        // Check if all incoming columns exist in the cached metadata
+        if (!metadata.hasAllColumns(incomingColumns)) {
+            // Column mismatch detected - fetch fresh metadata
+            getLogger().debug("Column mismatch detected for {}.{}, refreshing metadata cache", schema, table);
+            metadata = getTableMetadata(schema, table, true);
         }
-        
-        // Common PostgreSQL connection error patterns
-        if (message.contains("Connection refused")) {
-            return "Connection refused - PostgreSQL server is not accepting connections. " +
-                   "Verify the server is running and the port is correct.";
+
+        return metadata;
+    }
+
+    /**
+     * Invalidates cached metadata for a specific table.
+     *
+     * @param schema the schema name
+     * @param table  the table name
+     */
+    public void invalidateTableMetadata(final String schema, final String table) {
+        final TableMetadataCache cache = TableMetadataCache.getInstance();
+        cache.invalidate(getCurrentDatabase(), schema, table);
+    }
+
+    /**
+     * Clears all cached table metadata.
+     */
+    public void clearMetadataCache() {
+        final TableMetadataCache cache = TableMetadataCache.getInstance();
+        cache.clear();
+    }
+
+    private String getCurrentDatabase() {
+        // Try to get database from configuration
+        try (final PostgreSQLConnectionWrapper wrapper = getPostgreSQLConnection()) {
+            final Connection connection = wrapper.getConnection();
+            return connection.getCatalog();
+        } catch (Exception e) {
+            getLogger().warn("Failed to get current database name, using 'unknown'", e);
+            return "unknown";
         }
-        if (message.contains("timeout")) {
-            return "Connection timeout - PostgreSQL server did not respond within the timeout period. " +
-                   "Check network connectivity and firewall rules.";
-        }
-        if (message.contains("No route to host")) {
-            return "No route to host - Network path to PostgreSQL server is unreachable. " +
-                   "Verify hostname/IP address and network configuration.";
-        }
-        if (message.contains("Unknown host")) {
-            return "Unknown host - Cannot resolve the PostgreSQL hostname. " +
-                   "Verify DNS settings and hostname spelling.";
-        }
-        if (message.contains("authentication failed") || message.contains("password authentication failed")) {
-            return "Authentication failed - Invalid username or password. " +
-                   "Verify credentials and check pg_hba.conf authentication method.";
-        }
-        if (message.contains("database") && message.contains("does not exist")) {
-            return "Database does not exist - The specified database was not found on the server. " +
-                   "Verify the database name is correct.";
-        }
-        if (message.contains("SSL")) {
-            return "SSL/TLS connection error - Problem with secure connection. " +
-                   "Verify SSL mode setting and certificate configuration.";
-        }
-        
-        // If no specific pattern matched, return the full message
-        return message;
     }
 }

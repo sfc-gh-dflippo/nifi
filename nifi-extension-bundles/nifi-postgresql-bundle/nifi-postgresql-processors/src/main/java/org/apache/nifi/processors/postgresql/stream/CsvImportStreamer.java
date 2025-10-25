@@ -17,23 +17,6 @@
 
 package org.apache.nifi.processors.postgresql.stream;
 
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVPrinter;
-import org.apache.nifi.logging.ComponentLog;
-import org.apache.nifi.processor.ProcessSession;
-import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.serialization.RecordReader;
-import org.apache.nifi.serialization.RecordReaderFactory;
-import org.apache.nifi.serialization.record.Record;
-import org.apache.nifi.serialization.record.RecordField;
-import org.apache.nifi.serialization.record.RecordFieldType;
-import org.apache.nifi.serialization.record.RecordSchema;
-import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.processors.postgresql.util.CsvFormats;
-import org.apache.nifi.processors.postgresql.util.ProcessorProperties;
-import org.apache.nifi.serialization.SimpleRecordSchema;
-
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
@@ -41,17 +24,30 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVPrinter;
+import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.processor.ProcessSession;
+import org.apache.nifi.processor.exception.ProcessException;
+import org.apache.nifi.processors.postgresql.util.CsvFormats;
+import org.apache.nifi.processors.postgresql.util.ProcessorProperties;
+import org.apache.nifi.serialization.RecordReader;
+import org.apache.nifi.serialization.RecordReaderFactory;
+import org.apache.nifi.serialization.record.Record;
+import org.apache.nifi.serialization.record.RecordField;
+import org.apache.nifi.serialization.record.RecordSchema;
+
 /**
- * Imports CSV into PostgreSQL via COPY FROM STDIN using Apache Commons CSV directly for PostgreSQL communication.
- * Still uses NiFi RecordReader for reading FlowFile input data.
+ * Imports CSV into PostgreSQL via COPY FROM STDIN using Apache Commons CSV directly for PostgreSQL communication. Still uses NiFi RecordReader for
+ * reading FlowFile input data.
  */
 public final class CsvImportStreamer {
-    private CsvImportStreamer() {}
+    private CsvImportStreamer() {
+    }
 
     // Stream raw CSV bytes directly to COPY FROM
-    public static void streamCsvImport(final ProcessSession session,
-                                       final FlowFile flowFile,
-                                       final OutputStream out) {
+    public static void streamCsvImport(final ProcessSession session, final FlowFile flowFile, final OutputStream out) {
         session.read(flowFile, in -> {
             final byte[] buffer = new byte[8192];
             int len;
@@ -67,37 +63,39 @@ public final class CsvImportStreamer {
     }
 
     /**
-     * Stream CSV data directly from NiFi records to an OutputStream for PostgreSQL COPY IN operation.
-     * This provides true streaming without loading data into memory.
-     * 
-     * @param session The ProcessSession
-     * @param flowFile The FlowFile to read records from
-     * @param readerFactory The RecordReaderFactory to create the reader
-     * @param properties The processor properties
-     * @param outputStream The output stream to write CSV data to
-     * @param logger The component logger
+     * Stream CSV data directly from NiFi records to an OutputStream for PostgreSQL COPY IN operation. This provides true streaming without loading
+     * data into memory.
+     *
+     * @param session
+     *            The ProcessSession
+     * @param flowFile
+     *            The FlowFile to read records from
+     * @param readerFactory
+     *            The RecordReaderFactory to create the reader
+     * @param properties
+     *            The processor properties
+     * @param outputStream
+     *            The output stream to write CSV data to
+     * @param logger
+     *            The component logger
      * @return Number of records processed
      */
-    public static long streamCsvFromRecords(final ProcessSession session,
-                                           final FlowFile flowFile,
-                                           final RecordReaderFactory readerFactory,
-                                           final ProcessorProperties properties,
-                                           final OutputStream outputStream,
-                                           final ComponentLog logger) {
+    public static long streamCsvFromRecords(final ProcessSession session, final FlowFile flowFile, final RecordReaderFactory readerFactory,
+            final ProcessorProperties properties, final OutputStream outputStream, final ComponentLog logger) {
         final long[] count = new long[]{0L};
-        
+
         session.read(flowFile, in -> {
             try (RecordReader reader = readerFactory.createRecordReader(flowFile, in, logger)) {
                 final RecordSchema inputSchema = reader.getSchema();
                 final List<String> headerFields = resolveHeaderFields(properties, inputSchema);
                 final CSVFormat csvFormat = CsvFormats.buildCsvPrintFormat(properties);
-                
+
                 try (OutputStreamWriter writer = new OutputStreamWriter(outputStream, StandardCharsets.UTF_8);
-                     CSVPrinter csvPrinter = new CSVPrinter(writer, csvFormat)) {
-                    
+                        CSVPrinter csvPrinter = new CSVPrinter(writer, csvFormat)) {
+
                     // Write header row first since COPY expects HEADER true
                     csvPrinter.printRecord(headerFields);
-                    
+
                     Record record;
                     while ((record = reader.nextRecord()) != null) {
                         final List<Object> values = new ArrayList<>(headerFields.size());
@@ -118,7 +116,7 @@ public final class CsvImportStreamer {
                 throw new ProcessException("Failed while streaming CSV data to COPY IN", ex);
             }
         });
-        
+
         return count[0];
     }
 
@@ -135,10 +133,9 @@ public final class CsvImportStreamer {
         final List<String> ordered = new ArrayList<>(parts.length);
         for (String p : parts) {
             final String name = p.trim();
-            if (!name.isEmpty()) ordered.add(name);
+            if (!name.isEmpty())
+                ordered.add(name);
         }
         return ordered;
     }
 }
-
-

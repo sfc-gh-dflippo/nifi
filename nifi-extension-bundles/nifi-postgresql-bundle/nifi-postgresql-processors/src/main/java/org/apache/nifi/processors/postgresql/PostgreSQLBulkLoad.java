@@ -17,6 +17,16 @@
 
 package org.apache.nifi.processors.postgresql;
 
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
+
 import org.apache.nifi.annotation.behavior.InputRequirement;
 import org.apache.nifi.annotation.behavior.InputRequirement.Requirement;
 import org.apache.nifi.annotation.behavior.SupportsBatching;
@@ -33,37 +43,29 @@ import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.nifi.processor.Relationship;
 import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.serialization.RecordReaderFactory;
-import java.io.IOException;
-import java.sql.SQLException;
-import org.apache.nifi.serialization.RecordSetWriterFactory;
-import org.apache.nifi.serialization.record.RecordSchema;
-import org.apache.nifi.serialization.record.RecordField;
 import org.apache.nifi.processors.postgresql.stream.CsvImportStreamer;
-import org.apache.nifi.processors.postgresql.stream.ParquetImportStreamer;
 import org.apache.nifi.processors.postgresql.util.CopyStreamUtil;
-import org.apache.nifi.processors.postgresql.util.CsvFormats;
 import org.apache.nifi.processors.postgresql.util.ProcessorProperties;
 import org.apache.nifi.processors.postgresql.util.SqlBuilder;
+import org.apache.nifi.serialization.RecordReaderFactory;
+import org.apache.nifi.serialization.RecordSetWriterFactory;
+import org.apache.nifi.serialization.record.RecordField;
+import org.apache.nifi.serialization.record.RecordSchema;
 import org.postgresql.PGConnection;
 import org.postgresql.copy.CopyManager;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Set;
-
 /**
- * Loads FlowFile records into a PostgreSQL table using COPY FROM STDIN in CSV or Parquet format.
- * Supports streaming raw bytes or transcoding via RecordReader/RecordSetWriter.
+ * Loads FlowFile records into a PostgreSQL table using COPY FROM STDIN in CSV or Parquet format. Supports streaming raw bytes or transcoding via
+ * RecordReader/RecordSetWriter.
  */
 @Tags({"postgresql", "copy from", "bulk", "ingest", "load"})
-@CapabilityDescription("Loads FlowFile records into a PostgreSQL table using COPY FROM STDIN (CSV or Parquet). In CSV mode, a RecordReader parses incoming FlowFiles and Apache Commons CSV generates the COPY stream. In Parquet mode, the FlowFile content is streamed to COPY FROM via pg_parquet with optional MATCH_BY. Supports specifying an ordered column list for CSV mode and writes 'record.count' for CSV inputs.")
+@CapabilityDescription("Loads FlowFile records into a PostgreSQL table using COPY FROM STDIN (CSV or Parquet). "
+        + "In CSV mode, a RecordReader parses incoming FlowFiles and Apache Commons CSV generates the COPY stream. "
+        + "In Parquet mode, the FlowFile content is streamed to COPY FROM via pg_parquet with optional MATCH_BY. "
+        + "Supports specifying an ordered column list for CSV mode and writes 'record.count' for CSV inputs.")
 @InputRequirement(Requirement.INPUT_REQUIRED)
 @SupportsBatching
-@WritesAttributes({
-        @WritesAttribute(attribute = "record.count", description = "Number of records written to PostgreSQL")
-})
+@WritesAttributes({@WritesAttribute(attribute = "record.count", description = "Number of records written to PostgreSQL")})
 public class PostgreSQLBulkLoad extends AbstractProcessor {
 
     static final PropertyDescriptor CONNECTION_PROVIDER = ProcessorProperties.CONNECTION_PROVIDER;
@@ -80,36 +82,16 @@ public class PostgreSQLBulkLoad extends AbstractProcessor {
     static final PropertyDescriptor CSV_HEADER = ProcessorProperties.CSV_HEADER;
     static final PropertyDescriptor PARQUET_MATCH_BY = ProcessorProperties.PARQUET_MATCH_BY;
 
-    static final Relationship REL_SUCCESS = new Relationship.Builder()
-            .name("success")
-            .description("FlowFiles successfully loaded into the target table")
-            .build();
+    static final Relationship REL_SUCCESS = new Relationship.Builder().name("success")
+            .description("FlowFiles successfully loaded into the target table").build();
 
-    static final Relationship REL_FAILURE = new Relationship.Builder()
-            .name("failure")
-            .description("FlowFiles that failed to be loaded")
-            .build();
+    static final Relationship REL_FAILURE = new Relationship.Builder().name("failure").description("FlowFiles that failed to be loaded").build();
 
-    static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(
-            CONNECTION_PROVIDER,
-            TARGET_TABLE,
-            BULK_TRANSFER_DATA_FORMAT,
-            STREAM_INCOMING_FILE,
-            RECORD_READER,
-            RECORD_WRITER,
-            TARGET_COLUMNS,
-            CSV_DELIMITER,
-            CSV_QUOTE,
-            CSV_ESCAPE,
-            CSV_NULL,
-            CSV_HEADER,
-            PARQUET_MATCH_BY
-    );
+    static final List<PropertyDescriptor> PROPERTY_DESCRIPTORS = List.of(CONNECTION_PROVIDER, TARGET_TABLE, BULK_TRANSFER_DATA_FORMAT,
+            STREAM_INCOMING_FILE, RECORD_READER, RECORD_WRITER, TARGET_COLUMNS, CSV_DELIMITER, CSV_QUOTE, CSV_ESCAPE, CSV_NULL, CSV_HEADER,
+            PARQUET_MATCH_BY);
 
-    private static final Set<Relationship> RELATIONSHIPS = Set.of(
-            REL_SUCCESS,
-            REL_FAILURE
-    );
+    private static final Set<Relationship> RELATIONSHIPS = Set.of(REL_SUCCESS, REL_FAILURE);
 
     @Override
     protected List<PropertyDescriptor> getSupportedPropertyDescriptors() {
@@ -133,13 +115,25 @@ public class PostgreSQLBulkLoad extends AbstractProcessor {
 
         final String tableName = properties.getTargetTable();
         final String format = properties.getBulkTransferDataFormat();
-        final PostgreSQLConnectionProviderService connectionProvider =
-                context.getProperty(CONNECTION_PROVIDER).asControllerService(PostgreSQLConnectionProviderService.class);
+        final PostgreSQLConnectionProviderService connectionProvider = context.getProperty(CONNECTION_PROVIDER)
+                .asControllerService(PostgreSQLConnectionProviderService.class);
 
+        Connection connection = null;
+        boolean originalAutoCommit = false;
         try (PostgreSQLConnectionWrapper wrapper = connectionProvider.getPostgreSQLConnection()) {
+            connection = wrapper.getConnection();
             final PGConnection pgConnection = wrapper.unwrap();
-            try { wrapper.connection.setAutoCommit(false); } catch (Exception e) { throw new ProcessException("Failed to disable auto-commit", e); }
             final CopyManager copyManager = pgConnection.getCopyAPI();
+
+            // Save original autoCommit state and set to false for transaction control
+            originalAutoCommit = connection.getAutoCommit();
+            try {
+                if (originalAutoCommit) {
+                    connection.setAutoCommit(false);
+                }
+            } catch (SQLException e) {
+                throw new ProcessException("Failed to disable auto-commit", e);
+            }
 
             final String copySql;
             final boolean streamIncoming = properties.isStreamIncomingFile();
@@ -153,7 +147,8 @@ public class PostgreSQLBulkLoad extends AbstractProcessor {
                 copySql = sqlBuilder.buildCopyIntoTableSql(targetColumnsCsv);
             }
 
-            // Execute COPY IN operation using true streaming approach (following PostgreSQL JDBC documentation)
+            // Execute COPY IN operation using true streaming approach (following PostgreSQL
+            // JDBC documentation)
             final long recordCount;
             if ("Parquet".equalsIgnoreCase(format)) {
                 if (streamIncoming) {
@@ -168,7 +163,8 @@ public class PostgreSQLBulkLoad extends AbstractProcessor {
                     });
                     recordCount = result[0];
                 } else {
-                    // For transcoding records to Parquet - this approach is complex, will need separate implementation
+                    // For transcoding records to Parquet - this approach is complex, will need
+                    // separate implementation
                     throw new ProcessException("Record-to-Parquet transcoding not yet supported with streaming COPY approach");
                 }
             } else {
@@ -190,18 +186,29 @@ public class PostgreSQLBulkLoad extends AbstractProcessor {
                     final RecordReaderFactory finalReaderFactory = readerFactory;
                     final ProcessorProperties finalProperties = properties;
                     recordCount = CopyStreamUtil.executeCopyInWithWriter(copyManager, copySql, outputStream -> {
-                        CsvImportStreamer.streamCsvFromRecords(finalSession, finalFlowFile, finalReaderFactory, finalProperties, outputStream, getLogger());
+                        CsvImportStreamer.streamCsvFromRecords(finalSession, finalFlowFile, finalReaderFactory, finalProperties, outputStream,
+                                getLogger());
                     });
                 }
             }
-            
 
-            try { wrapper.connection.commit(); } catch (Exception e) { throw new ProcessException("Commit failed after COPY", e); }
+            // Commit the transaction
+            try {
+                if (!connection.getAutoCommit()) {
+                    connection.commit();
+                }
+            } catch (SQLException e) {
+                throw new ProcessException("Commit failed after COPY", e);
+            }
 
-            if (!"Parquet".equalsIgnoreCase(format) && !streamIncoming) flowFile = session.putAttribute(flowFile, "record.count", String.valueOf(recordCount));
+            if (!"Parquet".equalsIgnoreCase(format) && !streamIncoming)
+                flowFile = session.putAttribute(flowFile, "record.count", String.valueOf(recordCount));
             session.getProvenanceReporter().send(flowFile, "postgresql:" + SqlBuilder.quoteIdentifierPath(tableName));
             session.transfer(flowFile, REL_SUCCESS);
         } catch (Exception e) {
+            // Rollback the transaction on error
+            rollbackConnection(connection);
+
             getLogger().error("Failed to bulk load into PostgreSQL", e);
             try {
                 if (flowFile != null) {
@@ -211,26 +218,62 @@ public class PostgreSQLBulkLoad extends AbstractProcessor {
                     if (cause != null && cause.getMessage() != null) {
                         errorMessage = cause.getMessage();
                     }
+                    StringWriter sw = new StringWriter();
+                    e.printStackTrace(new PrintWriter(sw));
                     flowFile = session.putAttribute(flowFile, "pg.error", String.valueOf(errorMessage));
+                    flowFile = session.putAttribute(flowFile, "failure.reason", String.valueOf(errorMessage));
+                    flowFile = session.putAttribute(flowFile, "failure.stacktrace", sw.toString());
                 }
-            } catch (Exception ignore) { }
+            } catch (Exception ignored) {
+                // Exception ignored
+            }
             session.transfer(session.penalize(flowFile), REL_FAILURE);
+        } finally {
+            // Restore original autoCommit state before connection returns to pool
+            restoreAutoCommit(connection, originalAutoCommit);
         }
         sqlBuilder.cleanup();
+    }
+
+    /**
+     * Rollback a database transaction. Follows NiFi standard pattern for connection management.
+     */
+    private void rollbackConnection(Connection connection) {
+        if (connection != null) {
+            try {
+                if (!connection.getAutoCommit()) {
+                    connection.rollback();
+                    getLogger().debug("Rolled back JDBC transaction");
+                }
+            } catch (final SQLException rollbackException) {
+                getLogger().error("Failed to rollback JDBC transaction", rollbackException);
+            }
+        }
+    }
+
+    /**
+     * Restore the original autoCommit state before returning connection to pool. Follows NiFi standard pattern for connection management.
+     */
+    private void restoreAutoCommit(Connection connection, boolean originalAutoCommit) {
+        if (connection != null) {
+            try {
+                if (originalAutoCommit && !connection.getAutoCommit()) {
+                    connection.setAutoCommit(originalAutoCommit);
+                }
+            } catch (final SQLException autoCommitException) {
+                getLogger().warn("Failed to restore auto-commit to {}", originalAutoCommit, autoCommitException);
+            }
+        }
     }
 
     @Override
     protected Collection<ValidationResult> customValidate(final ValidationContext validationContext) {
         final List<ValidationResult> results = new ArrayList<>();
-        final String format = validationContext.getProperty(BULK_TRANSFER_DATA_FORMAT).getValue();
         final boolean streamIncoming = validationContext.getProperty(STREAM_INCOMING_FILE).evaluateAttributeExpressions().asBoolean();
         if (!streamIncoming) {
             if (!validationContext.getProperty(RECORD_READER).isSet()) {
-                results.add(new ValidationResult.Builder()
-                        .subject("Record Reader")
-                        .valid(false)
-                        .explanation("Record Reader is required when not streaming the incoming file")
-                        .build());
+                results.add(new ValidationResult.Builder().subject("Record Reader").valid(false)
+                        .explanation("Record Reader is required when not streaming the incoming file").build());
             }
         }
         return results;
@@ -238,13 +281,16 @@ public class PostgreSQLBulkLoad extends AbstractProcessor {
 
     private String getTargetColumnsCsv(final ProcessorProperties properties) {
         final String cols = properties.getTargetColumns();
-        if (cols == null || cols.isBlank()) return "";
+        if (cols == null || cols.isBlank())
+            return "";
         final String[] parts = cols.split(",");
         final StringBuilder sb = new StringBuilder();
         for (String p : parts) {
             final String c = p.trim();
-            if (c.isEmpty()) continue;
-            if (sb.length() > 0) sb.append(", ");
+            if (c.isEmpty())
+                continue;
+            if (sb.length() > 0)
+                sb.append(", ");
             sb.append('"').append(c.replace("\"", "\"\"")).append('"');
         }
         return sb.toString();
@@ -263,7 +309,8 @@ public class PostgreSQLBulkLoad extends AbstractProcessor {
         final List<String> ordered = new ArrayList<>(parts.length);
         for (String p : parts) {
             final String name = p.trim();
-            if (!name.isEmpty()) ordered.add(name);
+            if (!name.isEmpty())
+                ordered.add(name);
         }
         return ordered;
     }
@@ -278,5 +325,3 @@ public class PostgreSQLBulkLoad extends AbstractProcessor {
 
     // No local transcode method; using shared streamer
 }
-
-

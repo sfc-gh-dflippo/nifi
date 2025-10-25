@@ -17,66 +17,62 @@
 
 package org.apache.nifi.processors.postgresql.format;
 
+import java.nio.charset.StandardCharsets;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.util.List;
+
 import org.apache.nifi.csv.CSVReader;
 import org.apache.nifi.csv.CSVRecordSetWriter;
-import org.apache.nifi.processors.postgresql.*;
+import org.apache.nifi.processors.postgresql.PostgreSQLBulkExport;
+import org.apache.nifi.processors.postgresql.PostgreSQLBulkLoad;
+import org.apache.nifi.processors.postgresql.PostgreSQLBulkUpsert;
+import org.apache.nifi.processors.postgresql.PostgreSQLConnectionProviderService;
+import org.apache.nifi.processors.postgresql.PostgreSQLConnectionWrapper;
 import org.apache.nifi.processors.postgresql.integration.credentials.CredentialManager;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Assertions;
-
-import java.nio.charset.StandardCharsets;
-import java.sql.ResultSet;
-import java.sql.Statement;
 
 /**
- * Consolidated Parquet format tests for all PostgreSQL processors.
- * Tests Parquet export, load, and upsert functionality.
+ * Consolidated Parquet format tests for all PostgreSQL processors. Tests Parquet export, load, and upsert functionality.
  */
 public class ParquetProcessorsIT {
 
     private static final CredentialManager.PostgreSQLCredentials CREDENTIALS = CredentialManager.getPostgreSQLCredentials();
-    private static final String SCHEMA = "public";  // PostgreSQL default schema
+    private static final String SCHEMA = "public"; // PostgreSQL default schema
     private static final String EXPORT_TABLE = SCHEMA + ".nifi_test_parquet_export";
     private static final String LOAD_TABLE = SCHEMA + ".nifi_test_parquet_load";
     private static final String UPSERT_TABLE = SCHEMA + ".nifi_test_parquet_upsert";
 
     private PostgreSQLConnectionProviderService connectionService;
 
-    private PostgreSQLConnectionProviderService createConnectionProviderService(
-            TestRunner runner,
+    private PostgreSQLConnectionProviderService createConnectionProviderService(TestRunner runner,
             CredentialManager.PostgreSQLCredentials credentials) throws Exception {
-        
+
         runner.setValidateExpressionUsage(false);
-        final org.apache.nifi.postgresql.service.PostgreSQLConnectionPool connectionProviderService = 
-            new org.apache.nifi.postgresql.service.PostgreSQLConnectionPool();
+        final org.apache.nifi.postgresql.service.PostgreSQLConnectionPool connectionProviderService = new org.apache.nifi.postgresql.service.PostgreSQLConnectionPool();
 
         runner.addControllerService("postgresqlConnectionProviderService", connectionProviderService);
 
-        runner.setProperty(connectionProviderService,
-                org.apache.nifi.postgresql.service.util.ConnectionPoolSettings.CONNECTION_URL_FORMAT,
+        runner.setProperty(connectionProviderService, org.apache.nifi.postgresql.service.util.ConnectionPoolSettings.CONNECTION_URL_FORMAT,
                 org.apache.nifi.postgresql.service.util.ConnectionUrlFormat.FULL_URL);
 
-        runner.setProperty(connectionProviderService,
-                org.apache.nifi.postgresql.service.util.ConnectionPoolSettings.POSTGRESQL_URL,
+        runner.setProperty(connectionProviderService, org.apache.nifi.postgresql.service.util.ConnectionPoolSettings.POSTGRESQL_URL,
                 credentials.getJdbcUrl());
 
-        runner.setProperty(connectionProviderService,
-                org.apache.nifi.postgresql.service.util.ConnectionPoolSettings.POSTGRESQL_USER,
+        runner.setProperty(connectionProviderService, org.apache.nifi.postgresql.service.util.ConnectionPoolSettings.POSTGRESQL_USER,
                 credentials.getUserName());
 
-        runner.setProperty(connectionProviderService,
-                org.apache.nifi.postgresql.service.util.ConnectionPoolSettings.POSTGRESQL_PASSWORD,
+        runner.setProperty(connectionProviderService, org.apache.nifi.postgresql.service.util.ConnectionPoolSettings.POSTGRESQL_PASSWORD,
                 credentials.getPassword());
 
-        runner.setProperty(connectionProviderService,
-                org.apache.nifi.processors.postgresql.util.ConnectionSettings.SSL,
-                "true");
+        runner.setProperty(connectionProviderService, org.apache.nifi.processors.postgresql.util.ConnectionSettings.SSL, "true");
 
         runner.enableControllerService(connectionProviderService);
         return connectionProviderService;
@@ -92,15 +88,15 @@ public class ParquetProcessorsIT {
         try (PostgreSQLConnectionWrapper wrapper = connectionService.getPostgreSQLConnection()) {
             try (Statement st = wrapper.getConnection().createStatement()) {
                 st.execute("CREATE SCHEMA IF NOT EXISTS " + SCHEMA);
-                
+
                 // Create tables for all tests
                 st.execute("CREATE TABLE " + EXPORT_TABLE + " (id INT PRIMARY KEY, name TEXT)");
                 st.execute("CREATE TABLE " + LOAD_TABLE + " (id INT PRIMARY KEY, name TEXT)");
                 st.execute("CREATE TABLE " + UPSERT_TABLE + " (id INT PRIMARY KEY, name TEXT)");
-                
+
                 // Insert test data for export
                 st.execute("INSERT INTO " + EXPORT_TABLE + " (id, name) VALUES (1,'A'), (2,'B'), (3,'C')");
-                
+
                 wrapper.getConnection().commit();
             }
         }
@@ -133,21 +129,21 @@ public class ParquetProcessorsIT {
 
         TestRunner runner = TestRunners.newTestRunner(PostgreSQLBulkExport.class);
         connectionService = createConnectionProviderService(runner, CREDENTIALS);
-        
+
         runner.setProperty("postgresql-connection-provider", "postgresqlConnectionProviderService");
         runner.setProperty("source-table", EXPORT_TABLE);
         runner.setProperty("data-format", "Parquet");
 
         runner.run();
-        
+
         // Check if any FlowFiles were produced (may skip if pg_parquet not available)
-        final var success = runner.getFlowFilesForRelationship("success");
-        final var failure = runner.getFlowFilesForRelationship("failure");
-        
+        final List<MockFlowFile> success = runner.getFlowFilesForRelationship("success");
+        final List<MockFlowFile> failure = runner.getFlowFilesForRelationship("failure");
+
         // Test should either succeed with Parquet or fail gracefully
-        Assertions.assertTrue(success.size() > 0 || failure.size() > 0);
-        
-        if (success.size() > 0) {
+        Assertions.assertTrue(!success.isEmpty() || !failure.isEmpty());
+
+        if (!success.isEmpty()) {
             final MockFlowFile flowFile = success.get(0);
             Assertions.assertTrue(flowFile.getSize() > 0);
             Assertions.assertNotNull(flowFile.getAttribute("record.count"));
@@ -158,7 +154,7 @@ public class ParquetProcessorsIT {
     public void testParquetLoad() throws Exception {
         TestRunner runner = TestRunners.newTestRunner(PostgreSQLBulkLoad.class);
         connectionService = createConnectionProviderService(runner, CREDENTIALS);
-        
+
         runner.setProperty("postgresql-connection-provider", "postgresqlConnectionProviderService");
         runner.setProperty("data-format", "Parquet");
         runner.setProperty("stream-incoming-file", "false");
@@ -175,13 +171,13 @@ public class ParquetProcessorsIT {
         runner.enqueue(csvData.getBytes(StandardCharsets.UTF_8));
 
         runner.run();
-        
-        // Should either succeed or fail gracefully
-        final var success = runner.getFlowFilesForRelationship("success");
-        final var failure = runner.getFlowFilesForRelationship("failure");
-        Assertions.assertTrue(success.size() > 0 || failure.size() > 0);
 
-        if (success.size() > 0) {
+        // Should either succeed or fail gracefully
+        final List<MockFlowFile> success = runner.getFlowFilesForRelationship("success");
+        final List<MockFlowFile> failure = runner.getFlowFilesForRelationship("failure");
+        Assertions.assertTrue(!success.isEmpty() || !failure.isEmpty());
+
+        if (!success.isEmpty()) {
             // Verify data was loaded
             try (PostgreSQLConnectionWrapper wrapper = connectionService.getPostgreSQLConnection()) {
                 try (Statement st = wrapper.getConnection().createStatement()) {
@@ -198,14 +194,13 @@ public class ParquetProcessorsIT {
     public void testParquetUpsert() throws Exception {
         TestRunner runner = TestRunners.newTestRunner(PostgreSQLBulkUpsert.class);
         connectionService = createConnectionProviderService(runner, CREDENTIALS);
-        
+
         runner.setProperty("postgresql-connection-provider", "postgresqlConnectionProviderService");
         runner.setProperty("data-format", "Parquet");
         runner.setProperty("stream-incoming-file", "false");
         runner.setProperty("target-table", UPSERT_TABLE);
         runner.setProperty("upsert-returns-records", "true");
-        runner.setProperty("upsert-sql-template",
-                "INSERT INTO ${target_table} SELECT * FROM ${temp_table} ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name");
+        // Note: upsert-sql-template removed - SQL is now auto-generated based on table metadata
 
         // Create CSV reader for input
         final CSVReader reader = new CSVReader();
@@ -232,13 +227,13 @@ public class ParquetProcessorsIT {
         runner.enqueue(csvData.getBytes(StandardCharsets.UTF_8));
 
         runner.run();
-        
-        // Should either succeed or fail gracefully
-        final var success = runner.getFlowFilesForRelationship("success");
-        final var failure = runner.getFlowFilesForRelationship("failure");
-        Assertions.assertTrue(success.size() > 0 || failure.size() > 0);
 
-        if (success.size() > 0) {
+        // Should either succeed or fail gracefully
+        final List<MockFlowFile> success = runner.getFlowFilesForRelationship("success");
+        final List<MockFlowFile> failure = runner.getFlowFilesForRelationship("failure");
+        Assertions.assertTrue(!success.isEmpty() || !failure.isEmpty());
+
+        if (!success.isEmpty()) {
             // Verify upsert worked
             try (PostgreSQLConnectionWrapper wrapper = connectionService.getPostgreSQLConnection()) {
                 try (Statement st = wrapper.getConnection().createStatement()) {
@@ -246,7 +241,7 @@ public class ParquetProcessorsIT {
                         Assertions.assertTrue(rs.next());
                         Assertions.assertEquals("Updated", rs.getString(1));
                     }
-                    
+
                     try (ResultSet rs = st.executeQuery("SELECT name FROM " + UPSERT_TABLE + " WHERE id = 2")) {
                         Assertions.assertTrue(rs.next());
                         Assertions.assertEquals("New", rs.getString(1));

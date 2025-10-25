@@ -17,40 +17,40 @@
 
 package org.apache.nifi.processors.postgresql;
 
-import org.junit.jupiter.api.extension.BeforeAllCallback;
+import java.nio.file.Paths;
+
 import org.junit.jupiter.api.extension.AfterAllCallback;
+import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.images.builder.ImageFromDockerfile;
 import org.testcontainers.utility.DockerImageName;
-import java.nio.file.Paths;
 
 /**
- * JUnit 5 extension that manages the lifecycle of a PostgreSQL Testcontainer with pg_parquet extension.
- * This extension builds a custom PostgreSQL Docker image with pg_parquet extension from a Dockerfile
- * and starts the container before all tests in a class, stopping it after all tests complete.
- * 
- * The custom image includes:
- * - PostgreSQL 17.2
- * - pg_parquet extension for reading/writing Parquet files
- * 
- * Usage:
+ * JUnit 5 extension that manages the lifecycle of a PostgreSQL Testcontainer with pg_parquet extension. This extension builds a custom PostgreSQL
+ * Docker image with pg_parquet extension from a Dockerfile and starts the container before all tests in a class, stopping it after all tests
+ * complete.
+ *
+ * The custom image includes: - PostgreSQL 17.2 - pg_parquet extension for reading/writing Parquet files
+ *
+ * <p>
+ * Example usage:
+ * </p>
+ *
  * <pre>
- * {@code
- * @ExtendWith(PostgresqlContainerExtension.class)
+ * &#64;ExtendWith(PostgresqlContainerExtension.class)
  * class MyIntegrationTest {
- *     @Test
+ *     &#64;Test
  *     void testDatabaseConnection() throws SQLException {
  *         String jdbcUrl = PostgresqlContainerExtension.getJdbcUrl();
  *         String username = PostgresqlContainerExtension.getUsername();
  *         String password = PostgresqlContainerExtension.getPassword();
- *         
+ *
  *         try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password)) {
  *             // Test database operations including Parquet format
  *             // pg_parquet extension is automatically available
  *         }
  *     }
- * }
  * }
  * </pre>
  */
@@ -63,17 +63,16 @@ public class PostgresqlContainerExtension implements BeforeAllCallback, AfterAll
     public void beforeAll(ExtensionContext context) throws Exception {
         if (postgresContainer == null) {
             // Build custom PostgreSQL image with pg_parquet extension from Dockerfile
-            ImageFromDockerfile customImage = new ImageFromDockerfile()
-                    .withDockerfile(Paths.get("src/test/resources/docker/postgresql-pgparquet/Dockerfile"));
-            
-            DockerImageName customImageName = DockerImageName.parse("nifi-postgres-parquet:test")
-                    .asCompatibleSubstituteFor("postgres");
-            // Let Testcontainers use its default values for database name, username, and password
-            postgresContainer = new PostgreSQLContainer<>(customImageName)
-                    .withReuse(true); // Reuse container across test classes for better performance
-            
+            new ImageFromDockerfile().withDockerfile(Paths.get("src/test/resources/docker/postgresql-pgparquet/Dockerfile"));
+
+            DockerImageName customImageName = DockerImageName.parse("nifi-postgres-parquet:test").asCompatibleSubstituteFor("postgres");
+            // Let Testcontainers use its default values for database name, username, and
+            // password
+            postgresContainer = new PostgreSQLContainer<>(customImageName).withReuse(true); // Reuse container across test classes for better
+                                                                                            // performance
+
             postgresContainer.start();
-            
+
             // Log container information for debugging (excluding password for security)
             System.out.println("PostgreSQL Testcontainer started:");
             System.out.println("  JDBC URL: " + postgresContainer.getJdbcUrl());
@@ -84,15 +83,17 @@ public class PostgresqlContainerExtension implements BeforeAllCallback, AfterAll
 
     @Override
     public void afterAll(ExtensionContext context) throws Exception {
-        // Container will be stopped automatically when JVM exits due to Testcontainers cleanup
+        // Container will be stopped automatically when JVM exits due to Testcontainers
+        // cleanup
         // We don't explicitly stop it here to allow container reuse across test classes
     }
 
     /**
      * Get the JDBC URL for the PostgreSQL container.
-     * 
+     *
      * @return JDBC URL string
-     * @throws IllegalStateException if container is not started
+     * @throws IllegalStateException
+     *             if container is not started
      */
     public static String getJdbcUrl() {
         if (postgresContainer == null || !postgresContainer.isRunning()) {
@@ -103,9 +104,10 @@ public class PostgresqlContainerExtension implements BeforeAllCallback, AfterAll
 
     /**
      * Get the username for the PostgreSQL container.
-     * 
+     *
      * @return username string
-     * @throws IllegalStateException if container is not started
+     * @throws IllegalStateException
+     *             if container is not started
      */
     public static String getUsername() {
         if (postgresContainer == null || !postgresContainer.isRunning()) {
@@ -116,9 +118,10 @@ public class PostgresqlContainerExtension implements BeforeAllCallback, AfterAll
 
     /**
      * Get the password for the PostgreSQL container.
-     * 
+     *
      * @return password string
-     * @throws IllegalStateException if container is not started
+     * @throws IllegalStateException
+     *             if container is not started
      */
     public static String getPassword() {
         if (postgresContainer == null || !postgresContainer.isRunning()) {
@@ -129,9 +132,10 @@ public class PostgresqlContainerExtension implements BeforeAllCallback, AfterAll
 
     /**
      * Get the database name for the PostgreSQL container.
-     * 
+     *
      * @return database name string
-     * @throws IllegalStateException if container is not started
+     * @throws IllegalStateException
+     *             if container is not started
      */
     public static String getDatabaseName() {
         if (postgresContainer == null || !postgresContainer.isRunning()) {
@@ -142,9 +146,10 @@ public class PostgresqlContainerExtension implements BeforeAllCallback, AfterAll
 
     /**
      * Get the mapped port for the PostgreSQL container.
-     * 
+     *
      * @return mapped port number
-     * @throws IllegalStateException if container is not started
+     * @throws IllegalStateException
+     *             if container is not started
      */
     public static Integer getMappedPort() {
         if (postgresContainer == null || !postgresContainer.isRunning()) {
@@ -155,9 +160,10 @@ public class PostgresqlContainerExtension implements BeforeAllCallback, AfterAll
 
     /**
      * Get the host for the PostgreSQL container.
-     * 
+     *
      * @return host string
-     * @throws IllegalStateException if container is not started
+     * @throws IllegalStateException
+     *             if container is not started
      */
     public static String getHost() {
         if (postgresContainer == null || !postgresContainer.isRunning()) {

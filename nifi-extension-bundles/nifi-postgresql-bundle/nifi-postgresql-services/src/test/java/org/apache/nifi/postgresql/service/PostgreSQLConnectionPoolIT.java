@@ -24,8 +24,8 @@ import org.apache.nifi.postgresql.service.util.ConnectionPoolSettings;
 import org.apache.nifi.processors.postgresql.util.TableMetadata;
 import org.apache.nifi.processors.postgresql.PostgreSQLConnectionProviderService;
 import org.apache.nifi.processors.postgresql.PostgreSQLConnectionWrapper;
-import org.apache.nifi.processors.postgresql.integration.credentials.CredentialManager;
-import org.apache.nifi.processors.postgresql.integration.credentials.CredentialManager.PostgreSQLCredentials;
+import org.apache.nifi.postgresql.service.util.CredentialManager;
+import org.apache.nifi.postgresql.service.util.CredentialManager.PostgreSQLCredentials;
 import org.apache.nifi.processors.postgresql.util.ConnectionSettings;
 import org.apache.nifi.util.MockConfigurationContext;
 import org.apache.nifi.util.MockControllerServiceLookup;
@@ -55,7 +55,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
  * Integration test covering connection pool configuration and a simple PG unwrap.
  * Uses CredentialManager to load credentials from ~/.pg_service.conf or environment variables.
  */
-public class TestPostgreSQLConnectionPoolIT {
+public class PostgreSQLConnectionPoolIT {
 
     private static final String SERVICE_ID = "postgresqlConnectionProviderService";
 

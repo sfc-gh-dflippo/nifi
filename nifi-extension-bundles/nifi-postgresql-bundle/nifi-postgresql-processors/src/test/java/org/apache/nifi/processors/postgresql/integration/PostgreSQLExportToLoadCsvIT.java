@@ -35,8 +35,8 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import org.apache.nifi.processors.postgresql.integration.credentials.CredentialManager;
-import org.apache.nifi.processors.postgresql.integration.credentials.CredentialManager.PostgreSQLCredentials;
+import org.apache.nifi.postgresql.service.util.CredentialManager;
+import org.apache.nifi.postgresql.service.util.CredentialManager.PostgreSQLCredentials;
 
 /**
  * Integration tests for the complete Export -> Upsert -> Load pipeline with CSV format.

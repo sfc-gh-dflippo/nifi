@@ -73,10 +73,11 @@ public class PostgresqlContainerExtension implements BeforeAllCallback, AfterAll
 
             postgresContainer.start();
 
-            // Log container information for debugging (excluding password for security)
+            // Log container information for debugging (credentials excluded for security)
             System.out.println("PostgreSQL Testcontainer started:");
-            System.out.println("  JDBC URL: " + postgresContainer.getJdbcUrl());
+            System.out.println("  JDBC URL: " + maskJdbcUrl(postgresContainer.getJdbcUrl()));
             System.out.println("  Username: " + postgresContainer.getUsername());
+            System.out.println("  Note: Password not logged for security");
             System.out.println("  Database: " + postgresContainer.getDatabaseName());
         }
     }
@@ -86,6 +87,21 @@ public class PostgresqlContainerExtension implements BeforeAllCallback, AfterAll
         // Container will be stopped automatically when JVM exits due to Testcontainers
         // cleanup
         // We don't explicitly stop it here to allow container reuse across test classes
+    }
+
+    /**
+     * Masks any credentials in the JDBC URL for safe logging.
+     * Replaces password values with asterisks.
+     * 
+     * @param jdbcUrl the JDBC URL to mask
+     * @return masked JDBC URL safe for logging
+     */
+    private static String maskJdbcUrl(String jdbcUrl) {
+        if (jdbcUrl == null) {
+            return null;
+        }
+        // Mask password in JDBC URLs like: jdbc:postgresql://host:port/db?user=xxx&password=yyy
+        return jdbcUrl.replaceAll("([?&]password=)[^&]*", "$1****");
     }
 
     /**

@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.apache.nifi.postgresql.service.util;
+package org.apache.nifi.postgresql.service;
 
 import org.apache.nifi.processors.postgresql.util.TableMetadata;
 
@@ -33,9 +33,9 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 /**
- * Unit tests for TableMetadata class
+ * Unit tests for TableMetadataImpl class
  */
-public class TableMetadataTest {
+public class TableMetadataImplTest {
 
     @Test
     public void testHasPrimaryKey() {

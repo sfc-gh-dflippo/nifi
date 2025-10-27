@@ -43,7 +43,6 @@ import org.apache.nifi.processors.postgresql.PostgreSQLConnectionWrapper;
 import org.apache.nifi.processors.postgresql.util.ConnectionSettings;
 import org.apache.nifi.processors.postgresql.util.TableMetadata;
 import org.apache.nifi.postgresql.service.util.TableMetadataCache;
-import org.apache.nifi.postgresql.service.util.TableMetadataImpl;
  
 import org.apache.nifi.postgresql.service.util.ConnectionUrlFormat;
 import org.apache.nifi.postgresql.service.util.ConnectionPoolSettings;

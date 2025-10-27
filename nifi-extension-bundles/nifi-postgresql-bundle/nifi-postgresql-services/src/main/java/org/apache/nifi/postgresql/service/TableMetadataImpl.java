@@ -15,7 +15,7 @@
  * limitations under the License.
  */
 
-package org.apache.nifi.postgresql.service.util;
+package org.apache.nifi.postgresql.service;
 
 import org.apache.nifi.processors.postgresql.util.TableMetadata;
 
@@ -34,10 +34,9 @@ import java.util.stream.Collectors;
  * Implementation of TableMetadata for PostgreSQL tables.
  * Holds metadata about a PostgreSQL table including columns, primary keys, and JSONB columns.
  * 
- * This class is public within the services module but should not be used directly outside this module.
- * Use PostgreSQLConnectionProviderService.getTableMetadata() in production code.
+ * Package-private implementation. Use PostgreSQLConnectionProviderService.getTableMetadata() instead.
  */
-public class TableMetadataImpl implements TableMetadata {
+class TableMetadataImpl implements TableMetadata {
     private final String database;
     private final String schema;
     private final String table;

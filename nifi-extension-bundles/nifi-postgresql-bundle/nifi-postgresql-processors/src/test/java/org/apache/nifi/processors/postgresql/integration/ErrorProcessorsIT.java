@@ -15,17 +15,13 @@
  * limitations under the License.
  */
 
-package org.apache.nifi.processors.postgresql.error;
+package org.apache.nifi.processors.postgresql;
 
 import java.nio.charset.StandardCharsets;
 import java.sql.Statement;
 
 import org.apache.nifi.csv.CSVReader;
-import org.apache.nifi.processors.postgresql.PostgreSQLBulkLoad;
-import org.apache.nifi.processors.postgresql.PostgreSQLBulkUpsert;
-import org.apache.nifi.processors.postgresql.PostgreSQLConnectionProviderService;
-import org.apache.nifi.processors.postgresql.PostgreSQLConnectionWrapper;
-import org.apache.nifi.processors.postgresql.integration.credentials.CredentialManager;
+import org.apache.nifi.postgresql.service.util.CredentialManager;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;

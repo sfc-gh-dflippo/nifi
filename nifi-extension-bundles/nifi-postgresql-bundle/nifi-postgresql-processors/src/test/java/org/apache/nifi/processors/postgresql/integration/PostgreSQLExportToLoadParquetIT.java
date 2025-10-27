@@ -28,8 +28,8 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.List;
 
-import org.apache.nifi.processors.postgresql.integration.credentials.CredentialManager;
-import org.apache.nifi.processors.postgresql.integration.credentials.CredentialManager.PostgreSQLCredentials;
+import org.apache.nifi.postgresql.service.util.CredentialManager;
+import org.apache.nifi.postgresql.service.util.CredentialManager.PostgreSQLCredentials;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;

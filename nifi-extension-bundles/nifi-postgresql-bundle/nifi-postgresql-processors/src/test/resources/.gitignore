@@ -1,0 +1,9 @@
+# Ignore test configuration files that contain credentials
+test-config.properties
+
+# Ignore any files with credentials or secrets
+*-credentials.properties
+*-secrets.properties
+*.credentials
+*.secrets
+

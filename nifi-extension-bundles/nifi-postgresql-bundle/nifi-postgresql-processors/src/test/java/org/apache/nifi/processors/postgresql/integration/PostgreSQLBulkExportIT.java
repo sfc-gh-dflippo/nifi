@@ -29,57 +29,39 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.List;
 
-import org.apache.nifi.processors.postgresql.integration.credentials.CredentialManager;
-import org.apache.nifi.processors.postgresql.integration.credentials.CredentialManager.PostgreSQLCredentials;
+import org.apache.nifi.postgresql.service.util.PostgreSQLTestHelper;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
-import org.apache.nifi.util.TestRunners;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * Integration test for PostgreSQLBulkExport with Parquet format against a remote PostgreSQL database. Uses CredentialManager to read connection
- * details from ~/.pg_service.conf
- *
- * Tests against table: public.perf_test_java_perf_200000_0_1758081847 (110,000 rows)
+ * Integration test for PostgreSQLBulkExport processor against a remote PostgreSQL database.
+ * Uses CredentialManager to read connection details from ~/.pg_service.conf
+ * 
+ * Tests various export formats (CSV, Parquet) and chunking scenarios.
  */
-public class PostgreSQLBulkExportParquetIT {
+public class PostgreSQLBulkExportIT {
 
+    private PostgreSQLTestHelper testHelper;
     private TestRunner testRunner;
-    private PostgreSQLCredentials pgCreds;
-    private org.apache.nifi.postgresql.service.PostgreSQLConnectionPool connectionService;
+    private Connection connection;
+    private PostgreSQLConnectionProviderService connectionService;
 
     @BeforeEach
     public void setup() throws Exception {
-        // Get PostgreSQL credentials from ~/.pg_service.conf
-        pgCreds = CredentialManager.getPostgreSQLCredentials();
-
-        System.out.println("=== PostgreSQL Connection Info ===");
-        System.out.println("Host: " + pgCreds.getHost());
-        System.out.println("Port: " + pgCreds.getPort());
-        System.out.println("Database: " + pgCreds.getDatabase());
-        System.out.println("Username: " + pgCreds.getUserName());
-        System.out.println("JDBC URL: " + pgCreds.getJdbcUrl());
-        System.out.println("===================================");
-
-        // Initialize the processor and test runner
-        testRunner = TestRunners.newTestRunner(PostgreSQLBulkExport.class);
-        testRunner.setValidateExpressionUsage(false);
+        testHelper = PostgreSQLTestHelper.builder()
+            .withProcessor(PostgreSQLBulkExport.class)
+            .build();
+        testHelper.setup();
+        
+        testRunner = testHelper.getTestRunner();
+        connection = testHelper.getConnection();
+        connectionService = testHelper.getConnectionService();
+        
         // Clear state for repeatable test cycles
         testRunner.getStateManager().clear(org.apache.nifi.components.state.Scope.CLUSTER);
-
-        // Create and configure the PostgreSQL connection pool service
-        connectionService = new org.apache.nifi.postgresql.service.PostgreSQLConnectionPool();
-        testRunner.addControllerService("postgresql-service", connectionService);
-
-        testRunner.setProperty(connectionService, org.apache.nifi.postgresql.service.PostgreSQLConnectionPool.POSTGRESQL_URL, pgCreds.getJdbcUrl());
-        testRunner.setProperty(connectionService, org.apache.nifi.postgresql.service.PostgreSQLConnectionPool.POSTGRESQL_USER, pgCreds.getUserName());
-        testRunner.setProperty(connectionService, org.apache.nifi.postgresql.service.PostgreSQLConnectionPool.POSTGRESQL_PASSWORD,
-                pgCreds.getPassword());
-
-        // Enable the connection service
-        testRunner.assertValid(connectionService);
-        testRunner.enableControllerService(connectionService);
 
         // Add a simple RecordWriter service for output
         // Note: Even though we're using Parquet format, the processor transcodes
@@ -96,17 +78,17 @@ public class PostgreSQLBulkExportParquetIT {
         testRunner.setProperty(PostgreSQLBulkExport.MAX_ROWS_PER_FLOW_FILE, "100000"); // Enable chunking
     }
 
+    @AfterEach
+    public void teardown() throws Exception {
+        testHelper.teardown();
+    }
+
     /**
      * Test that verifies the table exists and has data
      */
     @Test
     public void testTableExistsAndHasData() throws Exception {
-        String jdbcUrl = pgCreds.getJdbcUrl();
-        String username = pgCreds.getUserName();
-        String password = pgCreds.getPassword();
-
-        try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password);
-                Statement stmt = conn.createStatement();
+        try (Statement stmt = connection.createStatement();
                 ResultSet rs = stmt.executeQuery("SELECT COUNT(*) as row_count FROM public.perf_test_java_perf_200000_0_1758081847")) {
 
             assertTrue(rs.next(), "Query should return a result");
@@ -123,27 +105,20 @@ public class PostgreSQLBulkExportParquetIT {
      */
     @Test
     public void testPgParquetExtensionAvailable() throws Exception {
-        String jdbcUrl = pgCreds.getJdbcUrl();
-        String username = pgCreds.getUserName();
-        String password = pgCreds.getPassword();
+        // Try to use pg_parquet COPY TO
+        String query = "SELECT * FROM public.perf_test_java_perf_200000_0_1758081847 LIMIT 1";
+        String copyQuery = String.format("COPY (%s) TO STDOUT (FORMAT PARQUET)", query);
 
-        try (Connection conn = DriverManager.getConnection(jdbcUrl, username, password)) {
+        // This will throw an exception if pg_parquet is not available
+        org.postgresql.copy.CopyManager copyManager = new org.postgresql.copy.CopyManager((org.postgresql.core.BaseConnection) connection);
 
-            // Try to use pg_parquet COPY TO
-            String query = "SELECT * FROM public.perf_test_java_perf_200000_0_1758081847 LIMIT 1";
-            String copyQuery = String.format("COPY (%s) TO STDOUT (FORMAT PARQUET)", query);
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        copyManager.copyOut(copyQuery, out);
 
-            // This will throw an exception if pg_parquet is not available
-            org.postgresql.copy.CopyManager copyManager = new org.postgresql.copy.CopyManager((org.postgresql.core.BaseConnection) conn);
+        byte[] parquetData = out.toByteArray();
+        System.out.println("Parquet data size from 1 row: " + parquetData.length + " bytes");
 
-            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-            copyManager.copyOut(copyQuery, out);
-
-            byte[] parquetData = out.toByteArray();
-            System.out.println("Parquet data size from 1 row: " + parquetData.length + " bytes");
-
-            assertTrue(parquetData.length > 0, "Parquet data should not be empty");
-        }
+        assertTrue(parquetData.length > 0, "Parquet data should not be empty");
     }
 
     /**

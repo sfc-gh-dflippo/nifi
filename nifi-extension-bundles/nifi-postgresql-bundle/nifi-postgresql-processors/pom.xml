@@ -213,10 +213,10 @@
             <scope>test</scope>
         </dependency>
         
-        <!-- Shared test utilities (CredentialManager) -->
+        <!-- Shared test utilities (CredentialManager, PostgreSQLTestHelper) -->
         <dependency>
             <groupId>org.apache.nifi</groupId>
-            <artifactId>nifi-postgresql-services-api</artifactId>
+            <artifactId>nifi-postgresql-services</artifactId>
             <version>2.6.0</version>
             <classifier>tests</classifier>
             <scope>test</scope>

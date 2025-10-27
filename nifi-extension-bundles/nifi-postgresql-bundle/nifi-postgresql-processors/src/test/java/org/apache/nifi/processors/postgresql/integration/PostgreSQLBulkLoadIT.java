@@ -30,124 +30,88 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 
+import org.apache.nifi.postgresql.service.util.PostgreSQLTestHelper;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
-import org.apache.nifi.util.TestRunners;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
- * Integration tests for PostgreSQLBulkLoad processor using Testcontainers. These tests verify end-to-end functionality with a real PostgreSQL
- * database.
+ * Integration tests for PostgreSQLBulkLoad processor using external PostgreSQL database.
+ * These tests verify end-to-end functionality with a real PostgreSQL database via CredentialManager.
  */
-@ExtendWith(PostgresqlContainerExtension.class)
 public class PostgreSQLBulkLoadIT {
 
+    private PostgreSQLTestHelper testHelper;
     private TestRunner testRunner;
     private PostgreSQLConnectionProviderService connectionService;
     private Connection connection;
 
     @BeforeEach
     public void setup() throws Exception {
-        // Initialize the processor and test runner
-        testRunner = TestRunners.newTestRunner(PostgreSQLBulkLoad.class);
-        testRunner.setValidateExpressionUsage(false);
-
-        // Create and configure the PostgreSQL connection pool service
-        connectionService = new org.apache.nifi.postgresql.service.PostgreSQLConnectionPool();
-        testRunner.addControllerService("postgresql-service", connectionService);
-
-        // Configure the DBCP service with Testcontainer connection details
-        String jdbcUrl = PostgresqlContainerExtension.getJdbcUrl();
-        String username = PostgresqlContainerExtension.getUsername();
-        String password = PostgresqlContainerExtension.getPassword();
-
-        System.out.println("DBCP Configuration:");
-        System.out.println("  JDBC URL: " + jdbcUrl);
-        System.out.println("  Username: " + username);
-        System.out.println("  Password: " + password);
-
-        testRunner.setProperty(connectionService, org.apache.nifi.postgresql.service.PostgreSQLConnectionPool.POSTGRESQL_URL, jdbcUrl);
-        testRunner.setProperty(connectionService, org.apache.nifi.postgresql.service.PostgreSQLConnectionPool.POSTGRESQL_USER, username);
-        testRunner.setProperty(connectionService, org.apache.nifi.postgresql.service.PostgreSQLConnectionPool.POSTGRESQL_PASSWORD, password);
-
-        // Enable the PostgreSQL connection service
-        testRunner.assertValid(connectionService);
-        testRunner.enableControllerService(connectionService);
+        testHelper = PostgreSQLTestHelper.builder()
+            .withProcessor(PostgreSQLBulkLoad.class)
+            .build();
+        testHelper.setup();
+        
+        testRunner = testHelper.getTestRunner();
+        connection = testHelper.getConnection();
+        connectionService = testHelper.getConnectionService();
 
         // Configure the processor to use the PostgreSQL connection service
         testRunner.setProperty(PostgreSQLBulkLoad.CONNECTION_PROVIDER, "postgresql-service");
         testRunner.setProperty(PostgreSQLBulkLoad.TARGET_TABLE, "test_table"); // Required for validation
 
-        // Get a direct connection for test setup and verification
-        try {
-            PostgreSQLConnectionWrapper wrapper = connectionService.getPostgreSQLConnection();
-            connection = wrapper.getConnection();
-            System.out.println("PostgreSQL connection obtained successfully");
-        } catch (Exception e) {
-            System.err.println("Failed to get PostgreSQL connection: " + e.getMessage());
-            // Fall back to direct JDBC connection for debugging
-            connection = java.sql.DriverManager.getConnection(jdbcUrl, username, password);
-            System.out.println("Using direct JDBC connection as fallback");
-        }
-
         System.out.println("PostgreSQLBulkLoadIT setup completed successfully");
     }
 
-    /**
-     * Helper method to create real Parquet data using pg_parquet extension. This method exports data from a PostgreSQL table to Parquet format using
-     * COPY TO STDOUT.
-     */
-    private byte[] createRealParquetData(String tableName) throws Exception {
-        try {
-            // Try to use pg_parquet COPY TO STDOUT to create real Parquet data
-            String copyToStdoutSql = "COPY " + tableName + " TO STDOUT (FORMAT parquet)";
-
-            try (PreparedStatement stmt = connection.prepareStatement(copyToStdoutSql)) {
-                // Execute the COPY TO STDOUT command
-                boolean hasResultSet = stmt.execute();
-                if (hasResultSet) {
-                    try (ResultSet rs = stmt.getResultSet()) {
-                        // Read the binary Parquet data from the result set
-                        if (rs.next()) {
-                            byte[] parquetBytes = rs.getBytes(1);
-                            if (parquetBytes != null && parquetBytes.length > 0) {
-                                System.out.println("Successfully created real Parquet data using pg_parquet");
-                                return parquetBytes;
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (Exception e) {
-            System.out.println("pg_parquet COPY TO STDOUT failed: " + e.getMessage());
-            System.out.println("This is expected if pg_parquet extension is not properly configured");
-        }
-
-        // Fallback: Create mock Parquet data for testing
-        // In a real scenario, this would be actual Parquet binary data
-        System.out.println("Using mock Parquet data for testing");
-        return createMockParquetData();
+    @AfterEach
+    public void teardown() throws Exception {
+        testHelper.teardown();
     }
 
     /**
-     * Creates mock Parquet data for testing when real pg_parquet is not available. This simulates the binary structure of a Parquet file.
+     * Helper method to create real Parquet data using PostgreSQLBulkExport processor.
+     * This ensures we test with actual Parquet files, not mocks.
      */
-    private byte[] createMockParquetData() {
-        // Create a mock Parquet file structure
-        // Real Parquet files have a specific binary format with magic numbers,
-        // metadata, etc.
-        StringBuilder mockParquet = new StringBuilder();
-        mockParquet.append("PAR1"); // Parquet magic number
-        mockParquet.append("MOCK_PARQUET_SCHEMA_AND_DATA");
-        mockParquet.append("id,name,age\n");
-        mockParquet.append("1,John Doe,30\n");
-        mockParquet.append("2,Jane Smith,25\n");
-        mockParquet.append("3,Bob Johnson,35\n");
-        mockParquet.append("PAR1"); // Parquet footer magic number
-
-        return mockParquet.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    private byte[] createRealParquetData(String tableName) throws Exception {
+        // Create a separate test runner for the export processor
+        final TestRunner exportRunner = org.apache.nifi.util.TestRunners.newTestRunner(PostgreSQLBulkExport.class);
+        exportRunner.setValidateExpressionUsage(false);
+        
+        // Reuse the existing connection service
+        exportRunner.addControllerService("postgresql-service", connectionService);
+        exportRunner.enableControllerService(connectionService);
+        
+        // Add a JSON record writer (required but not used for Parquet format)
+        org.apache.nifi.json.JsonRecordSetWriter writerService = new org.apache.nifi.json.JsonRecordSetWriter();
+        exportRunner.addControllerService("record-writer", writerService);
+        exportRunner.enableControllerService(writerService);
+        
+        // Configure the export processor to generate Parquet
+        exportRunner.setProperty(PostgreSQLBulkExport.CONNECTION_PROVIDER, "postgresql-service");
+        exportRunner.setProperty(PostgreSQLBulkExport.SOURCE_TABLE, tableName);
+        exportRunner.setProperty(PostgreSQLBulkExport.BULK_TRANSFER_DATA_FORMAT, "Parquet");
+        exportRunner.setProperty(PostgreSQLBulkExport.RECORD_WRITER, "record-writer");
+        exportRunner.setProperty(PostgreSQLBulkExport.MAX_ROWS_PER_FLOW_FILE, "0"); // All rows in one file
+        
+        // Run the export
+        exportRunner.run();
+        
+        // Get the exported Parquet data
+        exportRunner.assertTransferCount(PostgreSQLBulkExport.REL_SUCCESS, 1);
+        exportRunner.assertTransferCount(PostgreSQLBulkExport.REL_FAILURE, 0);
+        
+        List<org.apache.nifi.util.MockFlowFile> exported = exportRunner.getFlowFilesForRelationship(PostgreSQLBulkExport.REL_SUCCESS);
+        assertFalse(exported.isEmpty(), "Export should produce FlowFile with Parquet data");
+        
+        byte[] parquetData = exported.get(0).toByteArray();
+        assertTrue(parquetData.length > 0, "Parquet data should not be empty");
+        
+        System.out.println("Successfully created real Parquet data using PostgreSQLBulkExport: " + parquetData.length + " bytes");
+        
+        return parquetData;
     }
 
     @Test

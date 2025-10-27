@@ -1,22 +1,25 @@
 # PostgreSQL Integration Test Configuration Template
 # Copy this file to test-config.properties and update with your test database credentials
 # This file should NOT be committed to version control
+# 
+# IMPORTANT: Replace all placeholder values with your actual credentials
+# DO NOT commit the actual test-config.properties file
 
 # PostgreSQL Database Configuration
-postgresql.test.host=localhost
-postgresql.test.port=5432
-postgresql.test.database=nifi_test
-postgresql.test.schema=public
-postgresql.test.username=nifi_test
-postgresql.test.password=nifi_test
+postgresql.test.host=<YOUR_POSTGRESQL_HOST>
+postgresql.test.port=<YOUR_POSTGRESQL_PORT>
+postgresql.test.database=<YOUR_DATABASE_NAME>
+postgresql.test.schema=<YOUR_SCHEMA>
+postgresql.test.username=<YOUR_USERNAME>
+postgresql.test.password=<YOUR_PASSWORD>
 
-# Alternative: Use environment variables instead of this file
+# Alternative: Use environment variables instead of this file (RECOMMENDED)
 # export POSTGRESQL_TEST_HOST=localhost
 # export POSTGRESQL_TEST_PORT=5432
-# export POSTGRESQL_TEST_DATABASE=nifi_test
+# export POSTGRESQL_TEST_DATABASE=your_database
 # export POSTGRESQL_TEST_SCHEMA=public  
-# export POSTGRESQL_TEST_USERNAME=nifi_test
-# export POSTGRESQL_TEST_PASSWORD=nifi_test
+# export POSTGRESQL_TEST_USERNAME=your_username
+# export POSTGRESQL_TEST_PASSWORD=your_password
 
 # For CI/CD environments, prefer environment variables over property files
 # This provides better security and easier configuration management

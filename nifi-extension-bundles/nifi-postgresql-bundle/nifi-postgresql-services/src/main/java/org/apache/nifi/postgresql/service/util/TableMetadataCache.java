@@ -17,6 +17,8 @@
 
 package org.apache.nifi.postgresql.service.util;
 
+import org.apache.nifi.processors.postgresql.util.TableMetadata;
+
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;

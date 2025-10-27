@@ -29,7 +29,7 @@ import java.util.Set;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.processor.exception.ProcessException;
-import org.apache.nifi.postgresql.service.util.TableMetadata;
+import org.apache.nifi.processors.postgresql.util.TableMetadata;
 
 /**
  * Builds COPY SQL fragments for CSV and Parquet formats based on processor properties. Centralizes pg_parquet options mapping according to pg_parquet

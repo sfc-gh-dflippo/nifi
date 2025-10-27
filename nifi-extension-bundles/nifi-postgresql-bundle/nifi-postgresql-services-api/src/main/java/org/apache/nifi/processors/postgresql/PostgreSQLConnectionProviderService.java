@@ -18,6 +18,7 @@
 package org.apache.nifi.processors.postgresql;
 
 import org.apache.nifi.controller.ControllerService;
+import org.apache.nifi.processors.postgresql.util.TableMetadata;
 
 /**
  * Controller Service API that provides access to PostgreSQL connections wrapped in {@link PostgreSQLConnectionWrapper} for NiFi components.
@@ -30,4 +31,14 @@ public interface PostgreSQLConnectionProviderService extends ControllerService {
      * @return a PostgreSQLConnectionWrapper instance
      */
     PostgreSQLConnectionWrapper getPostgreSQLConnection();
+
+    /**
+     * Gets metadata for a PostgreSQL table including column information, types, primary keys, and JSONB columns.
+     * Results are cached to avoid repeated metadata queries.
+     *
+     * @param schema the schema name
+     * @param table  the table name
+     * @return TableMetadata instance containing the table metadata
+     */
+    TableMetadata getTableMetadata(String schema, String table);
 }

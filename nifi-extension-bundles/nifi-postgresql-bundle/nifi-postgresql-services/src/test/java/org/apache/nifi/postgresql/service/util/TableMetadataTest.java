@@ -16,6 +16,8 @@
  */
 package org.apache.nifi.postgresql.service.util;
 
+import org.apache.nifi.processors.postgresql.util.TableMetadata;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -122,7 +124,7 @@ public class TableMetadataTest {
         columnTypes.put("name", "varchar");
         columnTypes.put("metadata", "jsonb");
 
-        TableMetadata metadata = new TableMetadata(
+        TableMetadata metadata = new TableMetadataImpl(
                 "testdb",
                 "public",
                 "users",
@@ -162,7 +164,7 @@ public class TableMetadataTest {
             }
         }
 
-        return new TableMetadata(
+        return new TableMetadataImpl(
                 "testdb",
                 "public",
                 "test_table",

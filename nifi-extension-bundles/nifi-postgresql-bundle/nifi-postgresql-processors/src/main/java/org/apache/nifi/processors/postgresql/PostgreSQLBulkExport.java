@@ -58,8 +58,7 @@ import org.apache.nifi.csv.CSVRecordReader;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
 import org.apache.nifi.flowfile.attributes.CoreAttributes;
-import org.apache.nifi.postgresql.service.PostgreSQLConnectionPool;
-import org.apache.nifi.postgresql.service.util.TableMetadata;
+import org.apache.nifi.processors.postgresql.util.TableMetadata;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -186,9 +185,8 @@ public class PostgreSQLBulkExport extends AbstractProcessor {
 
                 // Cast JSONB columns to TEXT for both Parquet and CSV to ensure consistent text representation
                 // Use metadata service to get JSONB columns with caching
-                final PostgreSQLConnectionPool pool = (PostgreSQLConnectionPool) connectionProvider;
                 // Fetch metadata for the temp view - note: views appear as tables in pg_class
-                final TableMetadata metadata = pool.getTableMetadata("pg_temp", viewName);
+                final TableMetadata metadata = connectionProvider.getTableMetadata("pg_temp", viewName);
                 final List<String> jsonbColumns = new ArrayList<>(metadata.getJsonbColumns());
                 
                 final String exportQuery = jsonbColumns.isEmpty()

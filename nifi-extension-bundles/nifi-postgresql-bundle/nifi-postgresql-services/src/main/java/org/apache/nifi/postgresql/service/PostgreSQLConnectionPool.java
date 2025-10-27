@@ -41,8 +41,9 @@ import org.apache.nifi.processor.util.StandardValidators;
 import org.apache.nifi.processors.postgresql.PostgreSQLConnectionProviderService;
 import org.apache.nifi.processors.postgresql.PostgreSQLConnectionWrapper;
 import org.apache.nifi.processors.postgresql.util.ConnectionSettings;
-import org.apache.nifi.postgresql.service.util.TableMetadata;
+import org.apache.nifi.processors.postgresql.util.TableMetadata;
 import org.apache.nifi.postgresql.service.util.TableMetadataCache;
+import org.apache.nifi.postgresql.service.util.TableMetadataImpl;
  
 import org.apache.nifi.postgresql.service.util.ConnectionUrlFormat;
 import org.apache.nifi.postgresql.service.util.ConnectionPoolSettings;
@@ -686,7 +687,7 @@ public class PostgreSQLConnectionPool extends AbstractDBCPConnectionPool impleme
         try (final PostgreSQLConnectionWrapper wrapper = getPostgreSQLConnection()) {
             final Connection conn = wrapper.getConnection();
             final String dbName = getCurrentDatabase();
-            final TableMetadata metadata = TableMetadata.fetch(conn, schema, table);
+            final TableMetadata metadata = TableMetadataImpl.fetch(conn, schema, table);
             cache.put(dbName, schema, table, metadata);
             return metadata;
         } catch (Exception e) {

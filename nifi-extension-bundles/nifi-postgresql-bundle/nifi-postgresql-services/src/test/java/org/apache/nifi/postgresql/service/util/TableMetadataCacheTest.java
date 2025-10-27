@@ -16,6 +16,8 @@
  */
 package org.apache.nifi.postgresql.service.util;
 
+import org.apache.nifi.processors.postgresql.util.TableMetadata;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -182,7 +184,7 @@ public class TableMetadataCacheTest {
         columnTypes2.put("email", "varchar");
         columnTypes2.put("phone", "varchar");
 
-        TableMetadata metadata2 = new TableMetadata(
+        TableMetadata metadata2 = new TableMetadataImpl(
                 "mydb",
                 "public",
                 "users",
@@ -208,7 +210,7 @@ public class TableMetadataCacheTest {
         columnTypes.put("name", "varchar");
         columnTypes.put("email", "varchar");
 
-        return new TableMetadata(
+        return new TableMetadataImpl(
                 database,
                 schema,
                 table,

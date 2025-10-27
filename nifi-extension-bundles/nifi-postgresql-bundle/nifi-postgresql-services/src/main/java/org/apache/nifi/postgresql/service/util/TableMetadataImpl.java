@@ -17,6 +17,8 @@
 
 package org.apache.nifi.postgresql.service.util;
 
+import org.apache.nifi.processors.postgresql.util.TableMetadata;
+
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -29,9 +31,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Holds metadata about a PostgreSQL table including columns, primary keys, and JSONB columns. Used for caching to avoid repeated metadata queries.
+ * Implementation of TableMetadata for PostgreSQL tables.
+ * Holds metadata about a PostgreSQL table including columns, primary keys, and JSONB columns.
  */
-public class TableMetadata {
+public class TableMetadataImpl implements TableMetadata {
     private final String database;
     private final String schema;
     private final String table;
@@ -40,7 +43,7 @@ public class TableMetadata {
     private final Set<String> primaryKeyColumns;
     private final Set<String> jsonbColumns;
 
-    public TableMetadata(final String database, final String schema, final String table, final List<String> allColumns,
+    public TableMetadataImpl(final String database, final String schema, final String table, final List<String> allColumns,
             final Map<String, String> columnTypes, final Set<String> primaryKeyColumns, final Set<String> jsonbColumns) {
         this.database = database;
         this.schema = schema;
@@ -51,57 +54,62 @@ public class TableMetadata {
         this.jsonbColumns = jsonbColumns;
     }
 
+    @Override
     public String getDatabase() {
         return database;
     }
 
+    @Override
     public String getSchema() {
         return schema;
     }
 
+    @Override
     public String getTable() {
         return table;
     }
 
+    @Override
     public List<String> getAllColumns() {
         return allColumns;
     }
 
+    @Override
     public Map<String, String> getColumnTypes() {
         return columnTypes;
     }
 
+    @Override
     public String getColumnType(final String columnName) {
         return columnTypes.get(columnName);
     }
 
+    @Override
     public Set<String> getPrimaryKeyColumns() {
         return primaryKeyColumns;
     }
 
+    @Override
     public Set<String> getJsonbColumns() {
         return jsonbColumns;
     }
 
+    @Override
     public boolean hasPrimaryKey() {
         return !primaryKeyColumns.isEmpty();
     }
 
+    @Override
     public boolean isJsonbColumn(final String columnName) {
         return jsonbColumns.contains(columnName);
     }
 
+    @Override
     public boolean isPrimaryKeyColumn(final String columnName) {
         return primaryKeyColumns.contains(columnName);
     }
 
-    /**
-     * Check if table has all specified columns (case-insensitive)
-     *
-     * @param requiredColumns
-     *            Columns to check
-     * @return true if all columns exist in table
-     */
+    @Override
     public boolean hasAllColumns(final List<String> requiredColumns) {
         final Set<String> tableColumnsLower = allColumns.stream().map(String::toLowerCase).collect(Collectors.toSet());
         return requiredColumns.stream().map(String::toLowerCase).allMatch(tableColumnsLower::contains);
@@ -162,7 +170,8 @@ public class TableMetadata {
             }
         }
 
-        return new TableMetadata(database, schema, table, allColumns, columnTypes, primaryKeyColumns, jsonbColumns);
+        return new TableMetadataImpl(database, schema, table, allColumns, columnTypes, primaryKeyColumns, jsonbColumns);
     }
 
 }
+

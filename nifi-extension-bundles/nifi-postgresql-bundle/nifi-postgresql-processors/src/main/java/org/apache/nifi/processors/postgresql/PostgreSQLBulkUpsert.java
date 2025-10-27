@@ -43,8 +43,7 @@ import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
 import org.apache.nifi.flowfile.FlowFile;
-import org.apache.nifi.postgresql.service.PostgreSQLConnectionPool;
-import org.apache.nifi.postgresql.service.util.TableMetadata;
+import org.apache.nifi.processors.postgresql.util.TableMetadata;
 import org.apache.nifi.processor.AbstractProcessor;
 import org.apache.nifi.processor.ProcessContext;
 import org.apache.nifi.processor.ProcessSession;
@@ -176,8 +175,7 @@ public class PostgreSQLBulkUpsert extends AbstractProcessor {
             final String tempTable = "temp_nifi_" + UUID.randomUUID().toString().replaceAll("-", "");
 
             // Fetch table metadata from cache to validate primary key and generate upsert
-            final PostgreSQLConnectionPool pool = (PostgreSQLConnectionPool) connectionProvider;
-            final TableMetadata metadata = pool.getTableMetadata(schema, table);
+            final TableMetadata metadata = connectionProvider.getTableMetadata(schema, table);
             if (!metadata.hasPrimaryKey()) {
                 throw new ProcessException("Target table " + targetTable + " must have a primary key for upsert operations");
             }

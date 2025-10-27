@@ -21,7 +21,7 @@ import org.apache.nifi.components.ConfigVerificationResult;
 import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.controller.ConfigurationContext;
 import org.apache.nifi.postgresql.service.util.ConnectionPoolSettings;
-import org.apache.nifi.postgresql.service.util.TableMetadata;
+import org.apache.nifi.processors.postgresql.util.TableMetadata;
 import org.apache.nifi.processors.postgresql.PostgreSQLConnectionProviderService;
 import org.apache.nifi.processors.postgresql.PostgreSQLConnectionWrapper;
 import org.apache.nifi.processors.postgresql.integration.credentials.CredentialManager;

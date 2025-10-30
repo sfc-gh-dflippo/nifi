@@ -55,6 +55,135 @@ This configuration will:
 
 ---
 
+## Three Deduplication Strategies Based on Column Type
+
+When deduplication is enabled, the processor applies different aggregation strategies based on the column type:
+
+### 1. Primary Key Columns ✅
+- **No aggregation** - these columns are used in the `GROUP BY` clause
+- They define the unique record identity
+- Example: `primary_key`, `id`, composite keys like `(_context_id_, primary_key)`
+
+### 2. Scalar Columns (VARCHAR, INT, TIMESTAMP, etc.) 📝
+- **Keep the MOST RECENT value** using `ORDER BY timestamp_column DESC`
+- Uses PostgreSQL's `array_agg()` with `[1]` to select the first (most recent) element
+- This ensures the latest update "wins" for simple data types
+- Example SQL:
+  ```sql
+  (array_agg(name ORDER BY _etl_modified_ DESC))[1] AS name
+  ```
+
+### 3. JSONB/JSON Columns 🔗
+- **Merge ALL versions chronologically** using `ORDER BY timestamp_column ASC`
+- Uses the custom `jsonb_merge_agg()` aggregate function (created automatically)
+- Older values are applied first, then newer values override them progressively
+- This preserves the complete evolution of the JSONB document
+- Example SQL:
+  ```sql
+  jsonb_merge_agg(src ORDER BY _etl_modified_ ASC) AS src
+  ```
+
+---
+
+## Example Scenario: Two-Level Deduplication and Merge
+
+This example demonstrates the complete deduplication and merge process, including both:
+1. **Level 1**: Deduplication within the temporary table (multiple updates in the same batch)
+2. **Level 2**: Merging with existing data in the target table during upsert
+
+### Initial State: Existing Data in Target Table
+
+The target table already has a record for `primary_key = 123`:
+
+```
+primary_key | name      | src                           | _etl_modified_
+-----------+----------+-------------------------------+-------------------
+123        | "Jane"    | {"phone": "555-1234"}         | 2023-12-15 09:00
+```
+
+### Incoming Data in Temporary Table
+
+You receive multiple updates for the same record (`primary_key = 123`) in a single batch:
+
+```
+primary_key | name     | src                    | _etl_modified_
+-----------+---------+------------------------+-------------------
+123        | "John"   | {"age": 25}            | 2024-01-01 10:00
+123        | "John"   | {"city": "NYC"}        | 2024-01-01 11:00  
+123        | "Johnny" | {"age": 26}            | 2024-01-01 12:00
+```
+
+### Step 1: Deduplication Within Temporary Table
+
+The processor groups by `primary_key` and deduplicates the 3 rows:
+
+```
+primary_key | name     | src                              | _etl_modified_
+-----------+---------+----------------------------------+-------------------
+123        | "Johnny" | {"age": 26, "city": "NYC"}       | 2024-01-01 12:00
+```
+
+**What happened during temp table deduplication:**
+- **Scalar `name` field**: Picked most recent → `"Johnny"` (DESC ordered)
+- **JSONB `src` field**: Merged all versions chronologically (ASC ordered):
+  - `{} || {"age": 25} || {"city": "NYC"} || {"age": 26}`
+  - Result: `{"age": 26, "city": "NYC"}`
+- **Timestamp**: Kept most recent → `2024-01-01 12:00`
+
+### Step 2: Upsert with Target Table JSONB Merge
+
+The deduplicated record is then upserted into the target table. For JSONB columns, the upsert uses concatenation:
+
+```sql
+"src" = target_table."src" || excluded."src"
+```
+
+**JSONB merge during upsert:**
+```
+Existing:      {"phone": "555-1234"}                    -- From target table
+New:           {"age": 26, "city": "NYC"}               -- From deduplicated temp
+Final result:  {"phone": "555-1234", "age": 26, "city": "NYC"}  -- Merged!
+```
+
+### Final Result in Target Table
+
+After the complete upsert operation:
+
+```
+primary_key | name     | src                                           | _etl_modified_
+-----------+---------+-----------------------------------------------+-------------------
+123        | "Johnny" | {"phone": "555-1234", "age": 26, "city": "NYC"} | 2024-01-01 12:00
+```
+
+### Complete Transformation Summary
+
+**Scalar field (`name`):**
+- Old value in target: `"Jane"`
+- New value from temp (after dedup): `"Johnny"`
+- **Final**: `"Johnny"` ✅ (new value replaces old)
+
+**JSONB field (`src`):**
+- Old value in target: `{"phone": "555-1234"}`
+- Incoming updates (3 rows): `{"age": 25}`, `{"city": "NYC"}`, `{"age": 26}`
+- After temp dedup: `{"age": 26, "city": "NYC"}`
+- **Final**: `{"phone": "555-1234", "age": 26, "city": "NYC"}` ✅ (complete merge preserving all keys)
+
+**Timestamp (`_etl_modified_`):**
+- Old: `2023-12-15 09:00`
+- New: `2024-01-01 12:00`
+- **Final**: `2024-01-01 12:00` ✅ (most recent)
+
+### Key Insights
+
+This two-level merge approach ensures:
+- ✅ **Within batch**: Multiple updates to the same record are properly merged
+- ✅ **Across batches**: Historical JSONB data is preserved (`phone` field retained)
+- ✅ **Scalar fields**: Always reflect the most recent value
+- ✅ **JSONB fields**: Accumulate changes over time, perfect for CDC scenarios
+- ✅ **Data consistency**: All related fields stay in sync with the most recent timestamp
+
+---
+
 ## SQL Implementation Details
 
 The following sections document the SQL patterns used internally by the processor. **You don't need to write this SQL yourself** - the processor generates it automatically.

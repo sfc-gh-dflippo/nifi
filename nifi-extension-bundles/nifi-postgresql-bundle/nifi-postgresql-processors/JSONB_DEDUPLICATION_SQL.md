@@ -1,13 +1,20 @@
 # PostgreSQL JSONB Deduplication and Merge Patterns
 
 ## Overview
-This document describes advanced SQL patterns for deduplicating and merging JSONB data in PostgreSQL using:
-- `array_agg()` for grouping by primary key
-- `jsonb_merge_agg()` custom aggregate for merging JSONB objects chronologically
-- JSONB concatenation (`||`) for merging
-- Ordering by timestamp columns like `_etl_modified_` for chronological merging
 
-These patterns are **automatically implemented** in the **PostgreSQLBulkUpsert** processor when the `Enable Deduplication` property is set to `true`.
+This document explains how the **PostgreSQLBulkUpsert** processor's deduplication function works for **JSONB** and **scalar** columns when the `Enable Deduplication` property is enabled.
+
+### Key Concepts
+
+The processor implements two distinct deduplication strategies based on column type:
+
+**For scalar columns (VARCHAR, INT, TIMESTAMP, etc.):**
+- Uses `array_agg()` to keep the most recent value ordered by the deduplication timestamp column
+
+**For JSONB columns:**
+- Uses the `jsonb_merge_agg()` custom aggregate to merge all versions chronologically
+- Older values are applied first, newer values override them
+- Automatically creates the `jsonb_merge_agg()` function if it doesn't exist
 
 ---
 
@@ -190,73 +197,43 @@ The following sections document the SQL patterns used internally by the processo
 
 ---
 
-## Complex ETL Upsert Template with JSONB Aggregation and Merging
+## How the Processor Works: Complete ETL Flow with JSONB Deduplication
 
-### Purpose
-This template demonstrates how to:
-1. Load data into a temporary table
-2. Aggregate multiple records for the same `(_context_id_, primary_key)` composite key
-3. Use `_etl_modified_` timestamp ordering to merge JSONB chronologically
-4. Leverage `jsonb_merge_agg()` custom aggregate or array_agg patterns
-5. Perform upsert into target table with proper JSONB field merging
-
----
-
-## Pattern 1: Using array_agg for Aggregation-Based JSONB Merging
-
-### Concept
-Use `array_agg()` with ordering to collect values from multiple rows for the same primary key. For scalar fields, use `[1]` to pick the most recent value. For JSONB fields, this approach sets up the foundation for proper merging.
-
-```sql
-WITH aggregated AS (
-    SELECT
-        _context_id_,
-        primary_key,
-        (array_agg(_etl_run_id_ ORDER BY _etl_modified_ DESC))[1] AS _etl_run_id_,
-        (array_agg(_schema_class_ ORDER BY _etl_modified_ DESC))[1] AS _schema_class_,
-        (array_agg(fulltablename ORDER BY _etl_modified_ DESC))[1] AS fulltablename,
-        (array_agg(operation_type ORDER BY _etl_modified_ DESC))[1] AS operation_type,
-        (array_agg(name ORDER BY _etl_modified_ DESC))[1] AS name,
-        (array_agg(_is_deleted_ ORDER BY _etl_modified_ DESC))[1] AS _is_deleted_,
-        (array_agg(committedtime ORDER BY _etl_modified_ DESC))[1] AS committedtime,
-        (array_agg(extractedtime ORDER BY _etl_modified_ DESC))[1] AS extractedtime,
-        (array_agg(sortorder ORDER BY _etl_modified_ DESC))[1] AS sortorder,
-        (array_agg(loaded_seq ORDER BY _etl_modified_ DESC))[1] AS loaded_seq,
-        -- For JSONB, we could create a custom aggregate that merges all versions
-        (array_agg(src ORDER BY _etl_modified_ ASC))[array_length(array_agg(src ORDER BY _etl_modified_ ASC), 1)] AS src,
-        max(_etl_modified_) AS _etl_modified_,
-        (array_agg(_source_extracted_ ORDER BY _etl_modified_ DESC))[1] AS _source_extracted_
-    FROM ${temp_table}
-    GROUP BY _context_id_, primary_key
-)
-SELECT * FROM aggregated;
-```
+### Process Overview
+When deduplication is enabled, the processor executes the following steps:
+1. Loads incoming data into a temporary table
+2. Aggregates multiple records for the same primary key (or composite key)
+3. Uses the specified timestamp column to merge JSONB chronologically
+4. Applies the `jsonb_merge_agg()` custom aggregate for JSONB columns
+5. Performs upsert into the target table with proper JSONB field merging
 
 ---
 
-## Pattern 2: Using jsonb_merge_agg Custom Aggregate (Recommended)
+## SQL Deduplication Implementation
 
-### Purpose
-Create a PostgreSQL aggregate function that properly merges multiple JSONB objects in chronological order, allowing newer values to override older ones:
+The processor generates different SQL aggregation logic based on column type:
+
+### Scalar Columns (VARCHAR, INT, TIMESTAMP, etc.)
+
+The processor uses `array_agg()` with `ORDER BY timestamp DESC` and selects the first element `[1]` to keep the most recent value:
 
 ```sql
--- Hypothetical usage:
-SELECT
-    _context_id_,
-    primary_key,
-    jsonb_merge_agg(src ORDER BY _etl_modified_ ASC) AS merged_src
-FROM ${temp_table}
-GROUP BY _context_id_, primary_key;
+(array_agg(name ORDER BY _etl_modified_ DESC))[1] AS name
+(array_agg(_etl_run_id_ ORDER BY _etl_modified_ DESC))[1] AS _etl_run_id_
+(array_agg(operation_type ORDER BY _etl_modified_ DESC))[1] AS operation_type
 ```
 
-### Implementation Strategy
-The custom aggregate would:
-1. Start with an empty JSONB object `{}`
-2. For each row (ordered by timestamp), apply `result || new_value`
-3. This ensures newer values override older values in the merge
+### JSONB Columns
 
-### PostgreSQL Lower-Level Function
-The `||` operator for JSONB uses the internal `jsonb_concat()` function. A custom aggregate could leverage this:
+The processor uses the `jsonb_merge_agg()` custom aggregate function with `ORDER BY timestamp ASC` to merge all versions chronologically:
+
+```sql
+jsonb_merge_agg(src ORDER BY _etl_modified_ ASC) AS src
+```
+
+### The jsonb_merge_agg Aggregate Function
+
+The processor automatically creates this custom aggregate if it doesn't exist in your database:
 
 ```sql
 CREATE AGGREGATE jsonb_merge_agg(jsonb) (
@@ -266,26 +243,28 @@ CREATE AGGREGATE jsonb_merge_agg(jsonb) (
 );
 ```
 
-### Benefits
-1. **Performance**: Single pass through data instead of multiple array aggregations
-2. **Clarity**: Clear intent of merging JSONB objects
-3. **Flexibility**: Can handle complex merge scenarios
-4. **Efficiency**: Leverages native PostgreSQL JSONB operations
+**How it works:**
+1. Starts with an empty JSONB object `{}`
+2. For each row (ordered by timestamp ASC), applies `result || new_value`
+3. Newer values override older values (chronological merge)
+4. Result contains all keys from all versions, with latest values winning
 
 ---
 
 ## Key Takeaways
 
-1. **array_agg()** provides flexibility for collecting values from multiple rows
-2. **JSONB concatenation (||)** has right-side precedence (right overwrites left)
-3. **Custom jsonb_merge_agg aggregate** is the proper solution for merging JSONB from multiple records
-4. **Ordering matters**: Use `ASC` for chronological merge (older → newer) so final values win
-5. **Grouping by primary key** is essential for aggregation-based approaches
-6. **Two-level merging**: Merge within temp table (via aggregate), then merge with target table (via upsert)
+1. **Scalar fields**: The processor uses `array_agg()` with `DESC` ordering to keep the most recent value
+2. **JSONB fields**: The processor uses `jsonb_merge_agg()` with `ASC` ordering for chronological merge
+3. **JSONB concatenation (||)**: Right side overwrites left side (newer values win)
+4. **Automatic setup**: The `jsonb_merge_agg` aggregate is created automatically if needed
+5. **Two-level merging**: First within temp table (deduplication), then with target table (upsert)
+6. **Primary keys**: Used for `GROUP BY` during deduplication
 
 ---
 
-## Complete Working Example from PostgreSQLUpsertTemplates.java
+## Complete Generated SQL Example
+
+This is the actual SQL generated by the processor for a typical upsert with deduplication:
 
 ```sql
 WITH deflated_records AS (

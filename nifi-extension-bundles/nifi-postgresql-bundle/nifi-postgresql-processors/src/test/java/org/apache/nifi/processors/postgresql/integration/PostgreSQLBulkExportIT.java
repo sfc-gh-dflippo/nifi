@@ -29,12 +29,16 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.List;
 
+import org.apache.nifi.processors.postgresql.PostgreSQLConnectionProviderService;
+import org.apache.nifi.processors.postgresql.PostgreSQLConnectionWrapper;
 import org.apache.nifi.postgresql.service.util.PostgreSQLTestHelper;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.postgresql.PGConnection;
+import org.postgresql.copy.CopyManager;
 
 /**
  * Integration test for PostgreSQLBulkExport processor against a remote PostgreSQL database.
@@ -109,8 +113,10 @@ public class PostgreSQLBulkExportIT {
         String query = "SELECT * FROM public.perf_test_java_perf_200000_0_1758081847 LIMIT 1";
         String copyQuery = String.format("COPY (%s) TO STDOUT (FORMAT PARQUET)", query);
 
-        // This will throw an exception if pg_parquet is not available
-        org.postgresql.copy.CopyManager copyManager = new org.postgresql.copy.CopyManager((org.postgresql.core.BaseConnection) connection);
+        // Properly unwrap the connection to get PGConnection (handles pooled connections)
+        PostgreSQLConnectionWrapper wrapper = connectionService.getPostgreSQLConnection();
+        PGConnection pgConnection = wrapper.unwrap();
+        CopyManager copyManager = pgConnection.getCopyAPI();
 
         java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
         copyManager.copyOut(copyQuery, out);

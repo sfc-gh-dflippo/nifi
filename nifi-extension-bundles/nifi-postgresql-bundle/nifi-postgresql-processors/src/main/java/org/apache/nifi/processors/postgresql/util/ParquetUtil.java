@@ -37,9 +37,11 @@ import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.ProcessSession;
 import org.apache.parquet.avro.AvroParquetReader;
 import org.apache.parquet.avro.AvroParquetWriter;
+import org.apache.parquet.column.ParquetProperties;
 import org.apache.parquet.hadoop.ParquetFileReader;
 import org.apache.parquet.hadoop.ParquetReader;
 import org.apache.parquet.hadoop.metadata.BlockMetaData;
+import org.apache.parquet.hadoop.metadata.CompressionCodecName;
 import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 import org.apache.parquet.io.InputFile;
 import org.apache.parquet.io.OutputFile;
@@ -153,7 +155,11 @@ public final class ParquetUtil {
                         }
                     };
                     try (org.apache.parquet.hadoop.ParquetWriter<GenericRecord> writer = AvroParquetWriter.<GenericRecord>builder(outFile)
-                            .withSchema(avroSchema).build()) {
+                            .withSchema(avroSchema)
+                            .withCompressionCodec(CompressionCodecName.SNAPPY)
+                            // Uncomment to force Parquet v1 format for maximum compatibility
+                            //.withWriterVersion(ParquetProperties.WriterVersion.PARQUET_1_0)
+                            .build()) {
                         for (GenericRecord g : chunk)
                             writer.write(g);
                     }

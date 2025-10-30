@@ -31,6 +31,63 @@
 
     <dependencyManagement>
         <dependencies>
+            <!-- Internal bundle modules - version inherited from parent -->
+            <dependency>
+                <groupId>org.apache.nifi</groupId>
+                <artifactId>nifi-postgresql-services-api</artifactId>
+                <version>2.6.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.nifi</groupId>
+                <artifactId>nifi-postgresql-services-api-nar</artifactId>
+                <version>2.6.0</version>
+                <type>nar</type>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.nifi</groupId>
+                <artifactId>nifi-postgresql-services</artifactId>
+                <version>2.6.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.nifi</groupId>
+                <artifactId>nifi-postgresql-processors</artifactId>
+                <version>2.6.0</version>
+            </dependency>
+            
+            <!-- NiFi framework dependencies used across modules -->
+            <dependency>
+                <groupId>org.apache.nifi</groupId>
+                <artifactId>nifi-standard-shared-nar</artifactId>
+                <version>2.6.0</version>
+                <type>nar</type>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.nifi</groupId>
+                <artifactId>nifi-dbcp-base</artifactId>
+                <version>2.6.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.nifi</groupId>
+                <artifactId>nifi-standard-processors</artifactId>
+                <version>2.6.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.nifi</groupId>
+                <artifactId>nifi-standard-record-utils</artifactId>
+                <version>2.6.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.nifi</groupId>
+                <artifactId>nifi-parquet-processors</artifactId>
+                <version>2.6.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.nifi</groupId>
+                <artifactId>nifi-record-serialization-services</artifactId>
+                <version>2.6.0</version>
+            </dependency>
+            
+            <!-- External dependencies used across multiple modules -->
             <dependency>
                 <groupId>org.postgresql</groupId>
                 <artifactId>postgresql</artifactId>
@@ -39,28 +96,17 @@
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>postgresql</artifactId>
-                <version>1.20.4</version>
+                <version>1.20.5</version>
                 <scope>test</scope>
             </dependency>
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>junit-jupiter</artifactId>
-                <version>1.20.4</version>
+                <version>1.20.5</version>
                 <scope>test</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>
-
-    <properties>
-        <!-- Default test database configuration - OVERRIDE via environment variables or command line -->
-        <!-- SECURITY WARNING: Never commit real credentials to version control -->
-        <postgresql.test.host>localhost</postgresql.test.host>
-        <postgresql.test.port>5432</postgresql.test.port>
-        <postgresql.test.database>nifi_test</postgresql.test.database>
-        <postgresql.test.schema>public</postgresql.test.schema>
-        <postgresql.test.username>nifi_test</postgresql.test.username>
-        <postgresql.test.password>nifi_test</postgresql.test.password>
-    </properties>
 
     <build>
         <pluginManagement>
@@ -77,15 +123,6 @@
                             <!-- Exclude integration tests from default execution -->
                             <exclude>**/*IT.java</exclude>
                         </excludes>
-                        <systemPropertyVariables>
-                            <!-- Pass PostgreSQL test credentials to all child modules -->
-                            <postgresql.test.host>${postgresql.test.host}</postgresql.test.host>
-                            <postgresql.test.port>${postgresql.test.port}</postgresql.test.port>
-                            <postgresql.test.database>${postgresql.test.database}</postgresql.test.database>
-                            <postgresql.test.schema>${postgresql.test.schema}</postgresql.test.schema>
-                            <postgresql.test.username>${postgresql.test.username}</postgresql.test.username>
-                            <postgresql.test.password>${postgresql.test.password}</postgresql.test.password>
-                        </systemPropertyVariables>
                     </configuration>
                 </plugin>
                 <plugin>
@@ -96,15 +133,6 @@
                             <!-- Include only integration tests -->
                             <include>**/*IT.java</include>
                         </includes>
-                        <systemPropertyVariables>
-                            <!-- Pass PostgreSQL test credentials to all child modules -->
-                            <postgresql.test.host>${postgresql.test.host}</postgresql.test.host>
-                            <postgresql.test.port>${postgresql.test.port}</postgresql.test.port>
-                            <postgresql.test.database>${postgresql.test.database}</postgresql.test.database>
-                            <postgresql.test.schema>${postgresql.test.schema}</postgresql.test.schema>
-                            <postgresql.test.username>${postgresql.test.username}</postgresql.test.username>
-                            <postgresql.test.password>${postgresql.test.password}</postgresql.test.password>
-                        </systemPropertyVariables>
                     </configuration>
                 </plugin>
             </plugins>
@@ -138,18 +166,6 @@
             <id>skip-postgresql-tests</id>
             <properties>
                 <skipTests>true</skipTests>
-            </properties>
-        </profile>
-
-        <!-- Profile for local development with different credentials -->
-        <profile>
-            <id>local-postgresql</id>
-            <properties>
-                <postgresql.test.host>localhost</postgresql.test.host>
-                <postgresql.test.database>nifi_test</postgresql.test.database>
-                <postgresql.test.schema>public</postgresql.test.schema>
-                <postgresql.test.username>nifi_test</postgresql.test.username>
-                <postgresql.test.password>nifi_test</postgresql.test.password>
             </properties>
         </profile>
     </profiles>
